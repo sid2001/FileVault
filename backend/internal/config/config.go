@@ -10,6 +10,7 @@ import (
 
 type Config struct {
 	Port								string
+	Host								string
 	DatabaseURL 				string
 	JWTSecret						string
 	StoragePath					string
@@ -24,14 +25,15 @@ func Load() *Config {
 		log.Fatalf("Error loading .env file: %v", err)
 	}
 
-	return &Config{
+	return &Config {
     Port:           		getEnv("PORT", "8080"),
+		Host:								getEnv("HOST", "localhost"),
     DatabaseURL:        buildDatabaseURL(),
     JWTSecret:          getEnv("JWT_SECRET", "your-super-secret-jwt-key"),
     StoragePath:        getEnv("STORAGE_PATH", "./storage"),
     APIRateLimit:       getEnvAsInt("API_RATE_LIMIT", 2),
 		UserRateLimit:      getEnvAsInt("USER_RATE_LIMIT", 5),
-		DefautlStorageQuota: getEnvAsUint64("DEFAULT_STORAGE_QUOTA", 1 * 1024 * 1024),
+		DefautlStorageQuota: getEnvAsUint64("DEFAULT_STORAGE_QUOTA", 1024 * 1024 * 1024),
 	}
 }
 
