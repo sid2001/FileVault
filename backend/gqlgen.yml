@@ -17,13 +17,13 @@ resolver:
 models:
   # Built-in scalar mappings
   ID:
-    model: github.com/99designs/gqlgen/graphql.ID
+    model: github.com/99designs/gqlgen/graphql.UUID
   Int:
     model: github.com/99designs/gqlgen/graphql.Int
   Upload:
     model: github.com/99designs/gqlgen/graphql.Upload
   Time:
-    model: time.Time
+    model: github.com/99designs/gqlgen/graphql.Time
 
   # Custom type mappings
   User:

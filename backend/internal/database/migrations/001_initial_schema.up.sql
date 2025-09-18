@@ -1,4 +1,4 @@
-CREATE EXTENSION IF NOT EXISTS "uuid-oosp";
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 CREATE TYPE user_role AS ENUM ('USER', 'ADMIN');
 CREATE TYPE share_type AS ENUM ('PUBLIC', 'PRIVATE', 'USER_SPECIFIC');
@@ -23,7 +23,7 @@ CREATE TABLE file_contents (
   size BIGINT NOT NULL,
   mime_type VARCHAR(255) NOT NULL,
   reference_count INTEGER NOT NULL DEFAULT 1,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE TABLE folders (
@@ -49,11 +49,11 @@ CREATE TABLE user_files (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-# to calculate storage occupied just divide the size by number of references 
-# there has to be way to recalculate this value for others as well when reference count changes
-# or queue a job to recalculate this value for all users
-# or create a table that will store changes to file refrences and then queue a job to recalculate this value and update related user table storage quota
-# do it at the end of every day
+-- to calculate storage occupied just divide the size by number of references 
+-- there has to be way to recalculate this value for others as well when reference count changes
+-- or queue a job to recalculate this value for all users
+-- or create a table that will store changes to file refrences and then queue a job to recalculate this value and update related user table storage quota
+-- do it at the end of every day
 
 -- CREATE TABLE reference_changes (
 --   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -62,10 +62,10 @@ CREATE TABLE user_files (
 --   created_at TIMESTAMPTZ DEFAULT NOW()
 -- )
 
-# schedule a task
-# to calculate storage occupied just divide the size by number of references 
-# there has to be way to recalculate this value for others as well when reference count changes
-# create a trigger for reference changes
+-- schedule a task
+-- to calculate storage occupied just divide the size by number of references 
+-- there has to be way to recalculate this value for others as well when reference count changes
+-- create a trigger for reference changes
 
 
 
@@ -109,12 +109,12 @@ CREATE INDEX idx_audit_logs_created_at ON audit_logs(created_at);
 
 
 CREATE OR REPLACE FUNCTION update_updated_at_column()
-RETURNS TRIGGER AS $
+RETURNS TRIGGER AS $$
 BEGIN
     NEW.updated_at = NOW();
     RETURN NEW;
 END;
-$ language 'plpgsql';
+$$ language 'plpgsql';
 
 
 CREATE OR REPLACE FUNCTION update_storage_quota()
@@ -131,7 +131,7 @@ BEGIN
 
   RETURN NEW; -- will get ignored as trigger is after update
   END;
-$$ LANGUAGE plpgsql;
+$$ language 'plpgsql';
 
 
 CREATE TRIGGER update_storage_quota 
@@ -153,4 +153,4 @@ CREATE TRIGGER update_file_shares_updated_at BEFORE UPDATE ON file_shares
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 INSERT INTO users (username, email, password_hash, role) VALUES 
-('admin_sisa', 'sidharth2001.lumia@gmail.com', '025734a9cec75ec4ccc0776394875699bc9b5d75bb6831443d4d4bf025bb89a5', ADMIN);
+('admin_sisa', 'sidharth2001.lumia@gmail.com', '025734a9cec75ec4ccc0776394875699bc9b5d75bb6831443d4d4bf025bb89a5', 'ADMIN');

@@ -2,7 +2,22 @@ package main
 
 import (
 	"file-vault/internal/config"
+	"file-vault/internal/database"
+	"file-vault/internal/graph"
+	"file-vault/internal/graph/generated"
+	"file-vault/internal/services"
+	"os"
+	"os/signal"
+
+	"log"
 	"net/http"
+	"time"
+
+	"github.com/99designs/gqlgen/graphql/handler"
+	"github.com/99designs/gqlgen/graphql/handler/transport"
+	"github.com/99designs/gqlgen/graphql/playground"
+
+	"github.com/gorilla/websocket"
 )
 
 func chainHandlers(mux http.Handler, handlers ...func(http.Handler) http.Handler) http.Handler {
@@ -13,7 +28,108 @@ func chainHandlers(mux http.Handler, handlers ...func(http.Handler) http.Handler
 }
 
 func main() {
-	config := config.Load()
+	cfg := config.Load()
 
-	http.ListenAndServe(config.Host + ":" + config.Port, nil)
+	db, err := database.Initialize(cfg.DatabaseURL)
+	if err != nil {
+		log.Fatal("Failed::Initialize Database: ", err)
+	}
+	defer db.Close()
+
+	if err := database.RunMigrations(db); err != nil {
+		log.Fatal("Failed::Run Migrations", err)
+	}
+
+	fileService := services.FileService{}
+	dedupService := services.DeduplicationService{}
+	rateLimiter := services.RateLimiter{}
+	storageService := services.StorageService{}
+
+	resolver := &graph.Resolver {
+		DB: db,
+		FileService: &fileService,
+		DedupService: &dedupService,
+		RateLimiter: &rateLimiter,
+		StorageService: &storageService,
+		Config: cfg,	
+	}
+
+	srv := handler.NewDefaultServer(generated.NewExecutableSchema(generated.Config{
+		Resolvers: resolver,
+	}))
+
+	srv.AddTransport(transport.Websocket{
+		KeepAlivePingInterval: 10 * time.Second,
+		Upgrader: websocket.Upgrader{
+			CheckOrigin: func(r *http.Request) bool {
+				return true // change this to allow only selected origins
+			},
+		},
+	})
+	srv.AddTransport(transport.Options{})
+	srv.AddTransport(transport.GET{})
+	srv.AddTransport(transport.POST{})
+	srv.AddTransport(transport.MultipartForm{
+		MaxMemory: 10 * 1024 * 1024, // 10 MB
+		MaxUploadSize: 50 * 1024 * 1024, // 50 MB
+	})
+
+	//srv.SetQueryCache(lru.New(1000))
+	//srv.Use(extension.Introspection{})
+	//srv.Use(extension.AutomaticPersistedQuery{
+	//	Cache: lru.New(100),
+	//})
+
+	mux := http.NewServeMux()
+	
+	corsHandler := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Access-Control-Allow-Origin", "http://localhost:3000")
+			w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+			w.Header().Set("Access-Control-Max-Age", "86400") // 24 hours
+			
+			if r.Method == "OPTIONS" {
+				w.WriteHeader(http.StatusOK)
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
+
+	graphqlHandler := corsHandler(srv)
+	mux.Handle("POST /graphql", graphqlHandler)
+
+	if os.Getenv("GO_ENV") != "production" {
+		playgroundHandler := corsHandler(playground.Handler("GraphQL Playground", "/graphql"))
+		mux.Handle("/playground", playgroundHandler)
+	}
+
+	server := &http.Server {
+		Addr: cfg.Host + ":" + cfg.Port,
+		Handler: mux,
+		ReadTimeout: 20 * time.Second,
+		WriteTimeout: 20 * time.Second,
+		IdleTimeout: 60 * time.Second,
+		MaxHeaderBytes: 1 << 20,
+	}
+
+	go func() {
+		log.Printf("Server starting on port %s", cfg.Port)
+		log.Printf("GraphQL endpoint: http://localhost:%s/graphql", cfg.Port)
+		if os.Getenv("GO_ENV") != "production" {
+			log.Printf("GraphQL playground: http://localhost:%s/playground", cfg.Port)
+		}
+
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatal("Failed to start server:", err)
+		}
+	}()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, os.Interrupt)
+	<-quit
+
 }
