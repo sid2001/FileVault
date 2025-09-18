@@ -1,0 +1,186 @@
+scalar Time 
+scalar Upload
+
+type User {
+  id: ID!
+  username: String!
+  email: String!
+  role: UserRole!
+  storageQuota: Int!
+  files: [UserFile!]!
+  folders: [Folder!]!
+  createdAt: Time!
+  updatedAt: Time!
+}
+
+type FileContent {
+  id: ID!
+  sha256Hash: String
+  size: Int!
+  mimeType: String!
+  referenceCount: Int!
+  createdAt: Time!
+}
+
+type UserFile {
+  id: ID!
+  user: User!
+  fileContent: FileContent!
+  filename: String!
+  folder: Folder
+  isPublic: Boolean!
+  downloadCount: Int!
+  tags: [String!]!
+  shareURL: String
+  createdAt: Time!
+  updatedAt: Time!
+}
+
+type Folder {
+  id: ID!
+  user: User!
+  name: String!
+  parentFolder: Folder
+  subfolders: [Folder!]!
+  files: [UserFile!]!
+  isPublic: Boolean!
+  createdAt: Time!
+  updatedAt: Time!
+}
+
+type FileShare {
+  id: ID!
+  file: UserFile!
+  shareType: ShareType!
+  sharePeriod: SharePeriod!
+  sharedWithUser: User
+  createdAt: Time!
+  updatedAt: Time!
+}
+
+type StorageStats {
+  totalUsed: Int!
+  originalSize: Int!
+  savedBytes: Int!
+  savedPercentage: Float!
+  userCount: Int! # maybe to show how many users have files shared with 
+  fileCount: Int!
+}
+
+type AuthPayload {
+  token: String!
+  user: User!
+}
+
+type AuditLog {
+  id: ID!
+  user: User!
+  action: AuditAction!
+  file: UserFile
+  ipAddress: String!
+  userAgent: String!
+  createdAt: Time!
+}
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum ShareType {
+  PUBLIC
+  PRIVATE
+  USER_SPECIFIC
+}
+
+enum AuditAction {
+  UPLOAD
+  DOWNLOAD
+  DELETE
+  SHARE
+  UNSHARE
+}
+
+enum SharePeriod {
+  TEMPORARY
+  PERMANENT
+}
+
+input RegisterInput {
+  username: String!
+  email: String!
+  password: String!
+}
+
+input LoginInput {
+  email: String!
+  password: String!
+}
+
+input UpdateFileInput {
+  filename: String
+  tags: [String!]
+  isPublic: Boolean
+  folderId: ID
+}
+
+input CreateFolderInput {
+  name: String!
+  parentFolderId: ID
+  isPublic: Boolean = false
+}
+
+input FileFiltersInput {
+  search: String
+  mimeType: String
+  sizeMin: Int
+  sizeMax: Int
+  dateFrom: Time
+  dateTo: Time
+  tags: [String!]
+  uploadedBy: String
+  folderId: ID
+}
+
+type Query {
+  me: User
+  users(limit: Int = 20, offset: Int = 0): [User!]!
+
+  files(filters: FileFiltersInput, limit: Int = 20, offset: Int = 0): [UserFile!]!
+  file(id: ID!): UserFile
+  publicFile(id: ID!): UserFile
+  downloadFile(id: ID!): String!
+
+  folders(parentId: ID): [Folder!]!
+  folder(id: ID!): Folder
+
+  storageStats: StorageStats!
+  userStorageStats(userId: ID): StorageStats!
+
+  auditLogs(limit: Int = 50, offset: Int = 0): [AuditLog!]!
+  allFiles(limit: Int = 50, offset: Int = 0): [UserFile!]!
+}
+
+type Mutation {
+  register(input: RegisterInput!): AuthPayload!
+  login(input: LoginInput): AuthPayload!
+
+  uploadFiles(files: [Upload!]!, folderId: ID): [UserFile!]!
+  deleteFile(fileId: ID!): Boolean!
+  updateFile(fileId: ID!, input: UpdateFileInput): UserFile!
+
+  createFolder(input: CreateFolderInput!): Folder!
+  deleteFolder(folderId: ID!): Boolean!
+  updateFolder(folderId: ID!, name: String!): Folder!
+
+  shareFile(fileId: ID!, shareType: ShareType!, userId: ID): FileShare!
+  unshareFile(fileId: ID!): Boolean!
+
+  updateUserQuota(userId: ID!, quota: Int!): User!
+  deleteUser(userId: ID!): Boolean!
+}
+
+type Subscription {
+  fileUploaded(userId: ID!): UserFile!
+  downloadCountUpdated(fileId: ID!): UserFile!
+}

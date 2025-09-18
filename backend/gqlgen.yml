@@ -1,0 +1,52 @@
+# Schema configuration - where GraphQL schema is defined
+schema:
+  - internal/graph/schema.graphql
+
+# Generated code configuration
+exec:
+  filename: internal/graph/generated/generated.go
+  package: generated
+
+# Resolver configuration  
+resolver:
+  filename: internal/graph/resolver.go
+  package: graph
+  type: Resolver
+
+# Model configuration - maps GraphQL types to Go types
+models:
+  # Built-in scalar mappings
+  ID:
+    model: github.com/99designs/gqlgen/graphql.ID
+  Int:
+    model: github.com/99designs/gqlgen/graphql.Int
+  Upload:
+    model: github.com/99designs/gqlgen/graphql.Upload
+  Time:
+    model: time.Time
+
+  # Custom type mappings
+  User:
+    model: file-vault/internal/models.User
+  UserFile:
+    model: file-vault/internal/models.UserFile
+  FileContent:
+    model: file-vault/internal/models.FileContent
+  Folder:
+    model: file-vault/internal/models.Folder
+  FileShare:
+    model: file-vault/internal/models.FileShare
+  AuditLog:
+    model: file-vault/internal/models.AuditLog
+  StorageStats:
+    model: file-vault/internal/models.StorageStats
+
+# Automatic type generation configuration
+autobind:
+  - file-vault/internal/models
+
+# Skip generating resolvers for these fields (they're in the model struct)
+skip_validation: false
+
+# Additional options
+omit_slice_element_pointers: false
