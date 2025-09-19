@@ -70,6 +70,7 @@ type UserFile struct {
 	Tags          []string     `json:"tags" db:"tags"`
 	CreatedAt     time.Time    `json:"created_at" db:"created_at"`
 	UpdatedAt     time.Time    `json:"updated_at" db:"updated_at"`
+	ShareURL      string      `json:"share_url,omitempty"`
 	
 	User        *User        `json:"user,omitempty"`
 	FileContent *FileContent `json:"file_content,omitempty"`

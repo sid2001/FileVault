@@ -20,6 +20,19 @@ const ME_QUERY = gql`
   }
 `
 
+const USER_STORAGE_STATS_QUERY = gql`
+  query UserStorageStats($userId: ID!) {
+    userStorageStats(userId: $userId) {
+      totalUsed
+      originalSize
+      savedBytes
+      savedPercentage
+      userCount
+      fileCount
+    }
+  }
+`
+
 const LOGIN_MUTATION = gql`
   mutation Login($input: LoginInput) {
     login(input: $input) {
@@ -59,25 +72,50 @@ interface User {
   createdAt: string
 }
 
+interface StorageStats {
+  totalUsed: number
+  originalSize: number
+  savedBytes: number
+  savedPercentage: number
+  userCount: number
+  fileCount: number
+}
+
 interface AuthContextType {
   user: User | null
+  storageStats: StorageStats | null
   loading: boolean
   login: (email: string, password: string) => Promise<boolean>
   register: (username: string, email: string, password: string) => Promise<boolean>
   logout: () => void
   isAuthenticated: boolean
+  refreshUser: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
+  const [storageStats, setStorageStats] = useState<StorageStats | null>(null)
   const [loading, setLoading] = useState(true)
   const router = useRouter()
   const client = useApolloClient()
 
+  // Safe localStorage access
+  const getToken = () => {
+    if (typeof window === 'undefined') return null
+    return localStorage.getItem('token')
+  }
+
   const { data: meData, loading: meLoading, refetch, error: meError } = useQuery(ME_QUERY, {
-    skip: typeof window === 'undefined' || !localStorage.getItem('token'),
+    skip: !getToken(),
+    fetchPolicy: 'cache-and-network',
+  })
+
+  const { data: storageData, loading: storageLoading, refetch: refetchStorage } = useQuery(USER_STORAGE_STATS_QUERY, {
+    variables: { userId: user?.id },
+    skip: !user?.id,
+    fetchPolicy: 'cache-and-network',
   })
 
   useEffect(() => {
@@ -85,6 +123,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(meData.me)
     }
   }, [meData])
+
+  useEffect(() => {
+    if (storageData?.userStorageStats) {
+      setStorageStats(storageData.userStorageStats)
+    }
+  }, [storageData])
 
   useEffect(() => {
     if (meError) {
@@ -96,18 +140,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [meError])
 
-  const [loginMutation] = useMutation(LOGIN_MUTATION, {
-    refetchQueries: [{ query: ME_QUERY }],
-  })
-  const [registerMutation] = useMutation(REGISTER_MUTATION, {
-    refetchQueries: [{ query: ME_QUERY }],
-  })
+  const [loginMutation] = useMutation(LOGIN_MUTATION)
+  const [registerMutation] = useMutation(REGISTER_MUTATION)
 
   useEffect(() => {
-    if (!meLoading) {
+    if (!meLoading && !storageLoading) {
       setLoading(false)
     }
-  }, [meLoading])
+  }, [meLoading, storageLoading])
 
   const login = async (email: string, password: string): Promise<boolean> => {
     try {
@@ -118,8 +158,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       })
 
       if (data?.login?.token) {
-        localStorage.setItem('token', data.login.token)
-        // No need to setUser manually, the refetched ME_QUERY will do it.
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('token', data.login.token)
+        }
+        // Set user data directly from login response
+        setUser(data.login.user)
         toast.success('Login successful!')
         router.push('/dashboard')
         return true
@@ -143,10 +186,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           input: { username, email, password }
         }
       })
+      console.log('Registration data:', data)
 
       if (data?.register?.token) {
-        localStorage.setItem('token', data.register.token)
-        // No need to setUser manually, the refetched ME_QUERY will do it.
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('token', data.register.token)
+        }
+        // Set user data directly from register response
+        setUser(data.register.user)
         toast.success('Registration successful!')
         router.push('/dashboard')
         return true
@@ -164,20 +211,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   const logout = async () => {
-    localStorage.removeItem('token')
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('token')
+    }
     setUser(null)
     await client.resetStore() // Clear the Apollo Client cache
     router.push('/login')
     toast.success('Logged out successfully')
   }
 
+  const refreshUser = async () => {
+    if (getToken()) {
+      try {
+        await refetch()
+      } catch (error) {
+        console.error('Failed to refresh user data:', error)
+      }
+    }
+  }
+
   const value: AuthContextType = {
     user,
+    storageStats,
     loading,
     login,
     register,
     logout,
     isAuthenticated: !!user,
+    refreshUser,
   }
 
   return (

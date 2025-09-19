@@ -1,11 +1,13 @@
 package main
 
 import (
+	"file-vault/internal/auth"
 	"file-vault/internal/config"
 	"file-vault/internal/database"
 	"file-vault/internal/graph"
 	"file-vault/internal/graph/generated"
 	"file-vault/internal/services"
+	"fmt"
 	"os"
 	"os/signal"
 
@@ -43,15 +45,15 @@ func main() {
 	fileService := services.FileService{}
 	dedupService := services.DeduplicationService{}
 	rateLimiter := services.RateLimiter{}
-	storageService := services.StorageService{}
+	storageService := services.NewStorageService(db)
 
-	resolver := &graph.Resolver {
-		DB: db,
-		FileService: &fileService,
-		DedupService: &dedupService,
-		RateLimiter: &rateLimiter,
-		StorageService: &storageService,
-		Config: cfg,	
+	resolver := &graph.Resolver{
+		DB:             db,
+		FileService:    &fileService,
+		DedupService:   &dedupService,
+		RateLimiter:    &rateLimiter,
+		StorageService: storageService,
+		Config:         cfg,
 	}
 
 	srv := handler.NewDefaultServer(generated.NewExecutableSchema(generated.Config{
@@ -70,7 +72,7 @@ func main() {
 	srv.AddTransport(transport.GET{})
 	srv.AddTransport(transport.POST{})
 	srv.AddTransport(transport.MultipartForm{
-		MaxMemory: 10 * 1024 * 1024, // 10 MB
+		MaxMemory:     10 * 1024 * 1024, // 10 MB
 		MaxUploadSize: 50 * 1024 * 1024, // 50 MB
 	})
 
@@ -81,7 +83,7 @@ func main() {
 	//})
 
 	mux := http.NewServeMux()
-	
+
 	corsHandler := func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Access-Control-Allow-Origin", "http://localhost:3000")
@@ -89,30 +91,30 @@ func main() {
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 			w.Header().Set("Access-Control-Allow-Credentials", "true")
 			w.Header().Set("Access-Control-Max-Age", "86400") // 24 hours
-			
+
 			if r.Method == "OPTIONS" {
 				w.WriteHeader(http.StatusOK)
 				return
 			}
-
+			fmt.Println("requrest incoming")
 			next.ServeHTTP(w, r)
 		})
 	}
 
-	graphqlHandler := corsHandler(srv)
-	mux.Handle("POST /graphql", graphqlHandler)
+	graphqlHandler := corsHandler(auth.Middleware(srv, cfg.JWTSecret))
+	mux.Handle("/graphql", graphqlHandler)
 
 	if os.Getenv("GO_ENV") != "production" {
 		playgroundHandler := corsHandler(playground.Handler("GraphQL Playground", "/graphql"))
 		mux.Handle("/playground", playgroundHandler)
 	}
 
-	server := &http.Server {
-		Addr: cfg.Host + ":" + cfg.Port,
-		Handler: mux,
-		ReadTimeout: 20 * time.Second,
-		WriteTimeout: 20 * time.Second,
-		IdleTimeout: 60 * time.Second,
+	server := &http.Server{
+		Addr:           cfg.Host + ":" + cfg.Port,
+		Handler:        mux,
+		ReadTimeout:    20 * time.Second,
+		WriteTimeout:   20 * time.Second,
+		IdleTimeout:    60 * time.Second,
 		MaxHeaderBytes: 1 << 20,
 	}
 

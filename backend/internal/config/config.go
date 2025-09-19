@@ -16,7 +16,7 @@ type Config struct {
 	StoragePath					string
 	APIRateLimit 				int
 	UserRateLimit 			int
-	DefautlStorageQuota uint64
+	DefaultStorageQuota int64
 }
 
 func Load() *Config {
@@ -33,7 +33,7 @@ func Load() *Config {
     StoragePath:        getEnv("STORAGE_PATH", "./storage"),
     APIRateLimit:       getEnvAsInt("API_RATE_LIMIT", 2),
 		UserRateLimit:      getEnvAsInt("USER_RATE_LIMIT", 5),
-		DefautlStorageQuota: getEnvAsUint64("DEFAULT_STORAGE_QUOTA", 1024 * 1024 * 1024),
+		DefaultStorageQuota: getEnvAsInt64("DEFAULT_STORAGE_QUOTA", 1024 * 1024 * 1024),
 	}
 }
 
@@ -53,10 +53,10 @@ func getEnvAsInt(key string, defaultValue int) int {
   return defaultValue
 }
 
-func getEnvAsUint64(key string, defaultValue uint64) uint64 {
+func getEnvAsInt64(key string, defaultValue int64) int64 {
   if value := os.Getenv(key); value != "" {
-   	if uintValue, err := strconv.ParseUint(value, 10, 64); err == nil {
-      return uintValue * 1024 * 1024
+   	if intValue, err := strconv.ParseInt(value, 10, 64); err == nil {
+      return intValue * 1024 * 1024
     }
   }
   return defaultValue
