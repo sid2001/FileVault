@@ -42,15 +42,15 @@ func main() {
 		log.Fatal("Failed::Run Migrations", err)
 	}
 
-	fileService := services.FileService{}
-	dedupService := services.DeduplicationService{}
+	dedupService := services.NewDeduplicationService(db)
+	fileService := services.NewFileService(dedupService, cfg.StoragePath)
 	rateLimiter := services.RateLimiter{}
 	storageService := services.NewStorageService(db)
 
 	resolver := &graph.Resolver{
 		DB:             db,
-		FileService:    &fileService,
-		DedupService:   &dedupService,
+		FileService:    fileService,
+		DedupService:   dedupService,
 		RateLimiter:    &rateLimiter,
 		StorageService: storageService,
 		Config:         cfg,

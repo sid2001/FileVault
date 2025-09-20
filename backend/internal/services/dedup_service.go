@@ -3,11 +3,13 @@ package services
 import (
 	"database/sql"
 	"file-vault/internal/models"
+	"fmt"
 )
 
 type DeduplicationService struct {
 	db *sql.DB
 }
+
 
 func NewDeduplicationService(db *sql.DB) *DeduplicationService {
 	return &DeduplicationService{db: db}
@@ -46,6 +48,21 @@ func (ds *DeduplicationService) GetDeduplicationStats() (*models.StorageStats, e
 		FileCount:       uniqueFiles,
 		UserCount:       totalReferences,
 	}, nil
+}
+
+func (ds *DeduplicationService) CheckDuplicateFile(sha256Hash string) (string, error) {
+	fmt.Printf("Dedup check for %s \n", sha256Hash)
+	query := `SELECT file_path FROM file_contents WHERE sha256_hash = $1`
+	var filePath string
+	err := ds.db.QueryRow(query, sha256Hash).Scan(&filePath)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return filePath, nil
+		}
+		fmt.Printf("Dedup error\n %v\n", err)
+		return "", err
+	}
+	return filePath, nil
 }
 
 func (ds *DeduplicationService) GetDuplicateFiles(limit, offset int) ([]*models.FileContent, error) {

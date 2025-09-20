@@ -1,12 +1,21 @@
 package graph
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"file-vault/internal/models"
 	"fmt"
+	"regexp"
+	"strings"
+	"unicode/utf8"
 
+	"github.com/google/uuid"
 	"github.com/lib/pq"
 )
 
+func (r *Resolver) loadFoldersWithRelations(userID string, parentID *uuid.UUID) ([]*models.Folder, error) {
+	
+}
 
 func (r *Resolver) loadUserFileWithRelations(fileID string) (*models.UserFile, error) {
 	query := `
@@ -46,7 +55,7 @@ func (r *Resolver) loadUserFileWithRelations(fileID string) (*models.UserFile, e
 
 // Type conversion functions
 func userToGraphQL(user *models.User) *models.User {
-	return &models.User {
+	return &models.User{
 		ID:           user.ID,
 		Username:     user.Username,
 		Email:        user.Email,
@@ -73,7 +82,7 @@ func userFileToGraphQL(file *models.UserFile) *models.UserFile {
 	}
 
 	if file.FileContent != nil {
-		result.FileContent = &models.FileContent {
+		result.FileContent = &models.FileContent{
 			ID:             file.FileContent.ID,
 			SHA256Hash:     file.FileContent.SHA256Hash,
 			Size:           int64(file.FileContent.Size),
@@ -117,4 +126,65 @@ func storageStatsToGraphQL(stats *models.StorageStats) *models.StorageStats {
 		UserCount:       stats.UserCount,
 		FileCount:       stats.FileCount,
 	}
+}
+
+func GenerateSHA256Hash(data *[]byte) (string, error) {
+	hash := sha256.Sum256(*data)
+	hashString := hex.EncodeToString(hash[:])
+
+	return hashString, nil
+}
+
+// sanitizeFilename removes or replaces invalid characters for database storage
+func sanitizeFilename(filename string) string {
+	// Check if the string is valid UTF-8
+	if !utf8.ValidString(filename) {
+		// Replace invalid UTF-8 sequences with a placeholder
+		filename = strings.ToValidUTF8(filename, "?")
+	}
+
+	// Remove or replace characters that might cause issues
+	// Keep only alphanumeric, dots, hyphens, underscores, and spaces
+	reg := regexp.MustCompile(`[^a-zA-Z0-9.\-_ ]+`)
+	filename = reg.ReplaceAllString(filename, "_")
+
+	// Remove leading/trailing spaces and dots
+	filename = strings.Trim(filename, " .")
+
+	// Ensure filename is not empty
+	if filename == "" {
+		filename = "unnamed_file"
+	}
+
+	// Limit filename length
+	if len(filename) > 255 {
+		filename = filename[:255]
+	}
+
+	return filename
+}
+
+// sanitizeMimeType ensures MIME type is valid UTF-8
+func sanitizeMimeType(mimeType string) string {
+	// Check if the string is valid UTF-8
+	if !utf8.ValidString(mimeType) {
+		// Replace invalid UTF-8 sequences with a placeholder
+		mimeType = strings.ToValidUTF8(mimeType, "?")
+	}
+
+	// Remove any null bytes or control characters
+	reg := regexp.MustCompile(`[\x00-\x1f\x7f]`)
+	mimeType = reg.ReplaceAllString(mimeType, "")
+
+	// Ensure MIME type is not empty
+	if mimeType == "" {
+		mimeType = "application/octet-stream"
+	}
+
+	// Limit MIME type length
+	if len(mimeType) > 255 {
+		mimeType = mimeType[:255]
+	}
+
+	return mimeType
 }

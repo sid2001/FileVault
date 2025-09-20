@@ -1,17 +1,23 @@
 import React, { useCallback, useState } from 'react'
 import { useDropzone } from 'react-dropzone'
-import { CloudArrowUpIcon, DocumentIcon } from '@heroicons/react/24/outline'
+import { CloudArrowUpIcon, DocumentIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline'
+import { validateFileType, FileValidationResult } from '@/lib/fileValidation'
 
 interface FileUploadProps {
   onFilesSelected: (files: File[]) => void
+  onFileValidation?: (validations: FileValidationResult[]) => void
   maxFiles?: number
   maxSize?: number
   accept?: Record<string, string[]>
   disabled?: boolean
+  appendMode?: boolean
+  existingFiles?: File[]
+  enableValidation?: boolean
 }
 
 export function FileUpload({
   onFilesSelected,
+  onFileValidation,
   maxFiles = 10,
   maxSize = 50 * 1024 * 1024, // 50MB
   accept = {
@@ -21,20 +27,41 @@ export function FileUpload({
     'application/*': ['.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx'],
   },
   disabled = false,
+  appendMode = false,
+  existingFiles = [],
+  enableValidation = true,
 }: FileUploadProps) {
   const [dragActive, setDragActive] = useState(false)
 
   const onDrop = useCallback(
-    (acceptedFiles: File[]) => {
-      onFilesSelected(acceptedFiles)
+    async (acceptedFiles: File[]) => {
+      let finalFiles = acceptedFiles
+      
+      if (appendMode) {
+        // Append new files to existing ones
+        finalFiles = [...existingFiles, ...acceptedFiles]
+      }
+      
+      // Validate file types if enabled
+      if (enableValidation && onFileValidation) {
+        try {
+          const validationPromises = finalFiles.map(file => validateFileType(file))
+          const validations = await Promise.all(validationPromises)
+          onFileValidation(validations)
+        } catch (error) {
+          console.error('Error validating files:', error)
+        }
+      }
+      
+      onFilesSelected(finalFiles)
       setDragActive(false)
     },
-    [onFilesSelected]
+    [onFilesSelected, onFileValidation, appendMode, existingFiles, enableValidation]
   )
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
-    maxFiles,
+    maxFiles: appendMode ? maxFiles - existingFiles.length : maxFiles,
     maxSize,
     accept,
     disabled,
@@ -62,9 +89,14 @@ export function FileUpload({
             <p>Drop the files here...</p>
           ) : (
             <div>
-              <p className="font-medium">Click to upload or drag and drop</p>
+              <p className="font-medium">
+                {appendMode ? 'Add more files or drag and drop' : 'Click to upload or drag and drop'}
+              </p>
               <p className="text-xs text-gray-500 mt-1">
-                Max {maxFiles} files, up to {Math.round(maxSize / (1024 * 1024))}MB each
+                {appendMode 
+                  ? `${existingFiles.length}/${maxFiles} files selected, up to ${Math.round(maxSize / (1024 * 1024))}MB each`
+                  : `Max ${maxFiles} files, up to ${Math.round(maxSize / (1024 * 1024))}MB each`
+                }
               </p>
             </div>
           )}

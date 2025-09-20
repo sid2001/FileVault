@@ -1,6 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { FileValidationResult } from '@/lib/fileValidation'
+
+// Force dynamic rendering
+export const dynamic = 'force-dynamic'
 import { useAuth } from '@/contexts/AuthContext'
 import { useRouter } from 'next/navigation'
 import { useQuery, useMutation } from '@apollo/client'
@@ -19,6 +23,8 @@ import {
   CloudArrowDownIcon,
   PlusIcon,
   MagnifyingGlassIcon,
+  XMarkIcon,
+  ExclamationTriangleIcon,
 } from '@heroicons/react/24/outline'
 import toast from 'react-hot-toast'
 
@@ -47,8 +53,8 @@ const FILES_QUERY = gql`
 `
 
 const UPLOAD_FILES_MUTATION = gql`
-  mutation UploadFiles($files: [Upload!]!, $folderID: ID) {
-    uploadFiles(files: $files, folderId: $folderID) {
+  mutation UploadFiles($files: [Upload!]!, $folderId: ID) {
+    uploadFiles(files: $files, folderId: $folderId) {
       id
       filename
       createdAt
@@ -81,21 +87,69 @@ export default function FilesPage() {
   const router = useRouter()
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false)
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
+  const [fileValidations, setFileValidations] = useState<FileValidationResult[]>([])
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null)
+  const [showAddMoreFiles, setShowAddMoreFiles] = useState(false)
+  const [showFilters, setShowFilters] = useState(false)
+  const [filters, setFilters] = useState({
+    mimeType: '',
+    sizeMin: '',
+    sizeMax: '',
+    dateFrom: '',
+    dateTo: '',
+    tags: [] as string[],
+    isPublic: null as boolean | null,
+  })
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('')
+
+  // Debounce search term
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm)
+    }, 300)
+
+    return () => clearTimeout(timer)
+  }, [searchTerm])
+
+  // Build filters object
+  const buildFilters = () => {
+    const filterObj: any = {}
+    
+    if (debouncedSearchTerm) filterObj.search = debouncedSearchTerm
+    if (filters.mimeType) filterObj.mimeType = filters.mimeType
+    if (filters.sizeMin) filterObj.sizeMin = parseInt(filters.sizeMin) * 1024 * 1024
+    if (filters.sizeMax) filterObj.sizeMax = parseInt(filters.sizeMax) * 1024 * 1024
+    if (filters.dateFrom) filterObj.dateFrom = filters.dateFrom
+    if (filters.dateTo) filterObj.dateTo = filters.dateTo
+    if (filters.tags.length > 0) filterObj.tags = filters.tags
+    if (filters.isPublic !== null) filterObj.isPublic = filters.isPublic
+    if (selectedFolder) filterObj.folderId = selectedFolder
+    
+    return Object.keys(filterObj).length > 0 ? filterObj : undefined
+  }
 
   const { data, loading: filesLoading, refetch } = useQuery(FILES_QUERY, {
     variables: {
-      filters: searchTerm ? { search: searchTerm } : undefined,
+      filters: buildFilters(),
       limit: 50,
       offset: 0,
     },
     skip: !isAuthenticated,
+    fetchPolicy: 'cache-and-network',
+    notifyOnNetworkStatusChange: true,
   })
 
   const [uploadFiles] = useMutation(UPLOAD_FILES_MUTATION)
   const [deleteFile] = useMutation(DELETE_FILE_MUTATION)
   const [shareFile] = useMutation(SHARE_FILE_MUTATION)
+
+  // Refetch files when authentication status changes
+  useEffect(() => {
+    if (isAuthenticated && refetch) {
+      refetch()
+    }
+  }, [isAuthenticated, refetch])
 
   if (loading) {
     return (
@@ -140,7 +194,7 @@ export default function FilesPage() {
       const { data } = await uploadFiles({
         variables: {
           files: selectedFiles,
-          folderID: selectedFolder,
+          folderId: selectedFolder,
         },
       })
 
@@ -194,6 +248,64 @@ export default function FilesPage() {
     toast(`Downloading ${filename}...`)
   }
 
+  const handleRemoveFile = (index: number) => {
+    setSelectedFiles(prev => prev.filter((_, i) => i !== index))
+  }
+
+  const handleClearAllFiles = () => {
+    setSelectedFiles([])
+    setFileValidations([])
+    setShowAddMoreFiles(false)
+  }
+
+  const handleAddMoreFiles = () => {
+    setShowAddMoreFiles(true)
+  }
+
+  const handleCloseUploadModal = () => {
+    setIsUploadModalOpen(false)
+    setSelectedFiles([])
+    setFileValidations([])
+    setShowAddMoreFiles(false)
+  }
+
+  const handleFileValidation = (validations: FileValidationResult[]) => {
+    setFileValidations(validations)
+  }
+
+  const handleFilterChange = (key: string, value: any) => {
+    setFilters(prev => ({
+      ...prev,
+      [key]: value
+    }))
+  }
+
+  const clearFilters = () => {
+    setFilters({
+      mimeType: '',
+      sizeMin: '',
+      sizeMax: '',
+      dateFrom: '',
+      dateTo: '',
+      tags: [],
+      isPublic: null,
+    })
+    setSearchTerm('')
+    setSelectedFolder(null)
+  }
+
+  const hasActiveFilters = () => {
+    return debouncedSearchTerm || 
+           filters.mimeType || 
+           filters.sizeMin || 
+           filters.sizeMax || 
+           filters.dateFrom || 
+           filters.dateTo || 
+           filters.tags.length > 0 || 
+           filters.isPublic !== null ||
+           selectedFolder
+  }
+
   return (
     <DashboardLayout>
       <div className="space-y-6">
@@ -209,19 +321,181 @@ export default function FilesPage() {
           </Button>
         </div>
 
-        {/* Search */}
-        <div className="relative">
-          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-            <MagnifyingGlassIcon className="h-5 w-5 text-gray-400" />
+        {/* Search and Filters */}
+        <div className="space-y-4">
+          <div className="flex gap-4">
+            <div className="relative flex-1">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <MagnifyingGlassIcon className="h-5 w-5 text-gray-400" />
+              </div>
+              <input
+                type="text"
+                placeholder="Search files..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
+              />
+            </div>
+            <Button
+              variant="outline"
+              onClick={() => setShowFilters(!showFilters)}
+              className="flex items-center gap-2"
+            >
+              <MagnifyingGlassIcon className="h-4 w-4" />
+              Filters
+              {hasActiveFilters() && (
+                <span className="bg-primary-500 text-white text-xs rounded-full px-2 py-1">
+                  Active
+                </span>
+              )}
+            </Button>
+            {hasActiveFilters() && (
+              <Button
+                variant="ghost"
+                onClick={clearFilters}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                Clear All
+              </Button>
+            )}
           </div>
-          <input
-            type="text"
-            placeholder="Search files..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
-          />
+
+          {/* Advanced Filters */}
+          {showFilters && (
+            <div className="bg-gray-50 p-4 rounded-lg border">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                {/* File Type Filter */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    File Type
+                  </label>
+                  <select
+                    value={filters.mimeType}
+                    onChange={(e) => handleFilterChange('mimeType', e.target.value)}
+                    className="block w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
+                  >
+                    <option value="">All Types</option>
+                    <option value="image/">Images</option>
+                    <option value="video/">Videos</option>
+                    <option value="audio/">Audio</option>
+                    <option value="application/pdf">PDF</option>
+                    <option value="text/">Text Files</option>
+                    <option value="application/">Documents</option>
+                  </select>
+                </div>
+
+                {/* Size Range */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Min Size (MB)
+                  </label>
+                  <input
+                    type="number"
+                    placeholder="0"
+                    value={filters.sizeMin}
+                    onChange={(e) => handleFilterChange('sizeMin', e.target.value)}
+                    className="block w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Max Size (MB)
+                  </label>
+                  <input
+                    type="number"
+                    placeholder="∞"
+                    value={filters.sizeMax}
+                    onChange={(e) => handleFilterChange('sizeMax', e.target.value)}
+                    className="block w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
+                  />
+                </div>
+
+                {/* Date Range */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    From Date
+                  </label>
+                  <input
+                    type="date"
+                    value={filters.dateFrom}
+                    onChange={(e) => handleFilterChange('dateFrom', e.target.value)}
+                    className="block w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    To Date
+                  </label>
+                  <input
+                    type="date"
+                    value={filters.dateTo}
+                    onChange={(e) => handleFilterChange('dateTo', e.target.value)}
+                    className="block w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
+                  />
+                </div>
+
+                {/* Public/Private Filter */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Visibility
+                  </label>
+                  <select
+                    value={filters.isPublic === null ? '' : filters.isPublic.toString()}
+                    onChange={(e) => {
+                      const value = e.target.value === '' ? null : e.target.value === 'true'
+                      handleFilterChange('isPublic', value)
+                    }}
+                    className="block w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
+                  >
+                    <option value="">All Files</option>
+                    <option value="true">Public Only</option>
+                    <option value="false">Private Only</option>
+                  </select>
+                </div>
+
+                {/* Tags Filter */}
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Tags (comma-separated)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="tag1, tag2, tag3"
+                    value={filters.tags.join(', ')}
+                    onChange={(e) => {
+                      const tags = e.target.value.split(',').map(tag => tag.trim()).filter(tag => tag)
+                      handleFilterChange('tags', tags)
+                    }}
+                    className="block w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
         </div>
+
+        {/* Results Summary */}
+        {!filesLoading && (
+          <div className="flex justify-between items-center text-sm text-gray-600">
+            <span>
+              {hasActiveFilters() ? (
+                <>Found {files.length} file{files.length !== 1 ? 's' : ''} matching your filters</>
+              ) : (
+                <>Showing {files.length} file{files.length !== 1 ? 's' : ''}</>
+              )}
+            </span>
+            {hasActiveFilters() && (
+              <button
+                onClick={clearFilters}
+                className="text-primary-600 hover:text-primary-800 font-medium"
+              >
+                Clear all filters
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Files Grid */}
         {filesLoading ? (
@@ -300,15 +574,26 @@ export default function FilesPage() {
           <Card>
             <CardContent className="text-center py-12">
               <DocumentIcon className="mx-auto h-12 w-12 text-gray-400" />
-              <h3 className="mt-2 text-sm font-medium text-gray-900">No files</h3>
+              <h3 className="mt-2 text-sm font-medium text-gray-900">
+                {hasActiveFilters() ? 'No files found' : 'No files'}
+              </h3>
               <p className="mt-1 text-sm text-gray-500">
-                Get started by uploading your first file.
+                {hasActiveFilters() 
+                  ? 'Try adjusting your search criteria or clear the filters to see all files.'
+                  : 'Get started by uploading your first file.'
+                }
               </p>
-              <div className="mt-6">
-                <Button onClick={() => setIsUploadModalOpen(true)}>
-                  <PlusIcon className="h-4 w-4 mr-2" />
-                  Upload Files
-                </Button>
+              <div className="mt-6 flex justify-center gap-3">
+                {hasActiveFilters() ? (
+                  <Button onClick={clearFilters}>
+                    Clear Filters
+                  </Button>
+                ) : (
+                  <Button onClick={() => setIsUploadModalOpen(true)}>
+                    <PlusIcon className="h-4 w-4 mr-2" />
+                    Upload Files
+                  </Button>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -317,29 +602,87 @@ export default function FilesPage() {
         {/* Upload Modal */}
         <Modal
           isOpen={isUploadModalOpen}
-          onClose={() => setIsUploadModalOpen(false)}
+          onClose={handleCloseUploadModal}
           title="Upload Files"
           size="lg"
         >
           <div className="space-y-4">
-            <FileUpload
-              onFilesSelected={setSelectedFiles}
-              maxFiles={10}
-              maxSize={50 * 1024 * 1024}
-            />
+            {!showAddMoreFiles ? (
+              <FileUpload
+                onFilesSelected={setSelectedFiles}
+                onFileValidation={handleFileValidation}
+                maxFiles={10}
+                maxSize={50 * 1024 * 1024}
+                enableValidation={true}
+              />
+            ) : (
+              <FileUpload
+                onFilesSelected={setSelectedFiles}
+                onFileValidation={handleFileValidation}
+                maxFiles={10}
+                maxSize={50 * 1024 * 1024}
+                appendMode={true}
+                existingFiles={selectedFiles}
+                enableValidation={true}
+              />
+            )}
             
             {selectedFiles.length > 0 && (
               <div className="space-y-2">
-                <h4 className="text-sm font-medium text-gray-900">Selected Files:</h4>
+                <div className="flex items-center justify-between">
+                  <h4 className="text-sm font-medium text-gray-900">Selected Files:</h4>
+                  <div className="flex space-x-2">
+                    {!showAddMoreFiles && selectedFiles.length < 10 && (
+                      <button
+                        onClick={handleAddMoreFiles}
+                        className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+                      >
+                        Add More
+                      </button>
+                    )}
+                    <button
+                      onClick={handleClearAllFiles}
+                      className="text-xs text-red-600 hover:text-red-800 font-medium"
+                    >
+                      Clear All
+                    </button>
+                  </div>
+                </div>
                 <div className="max-h-32 overflow-y-auto space-y-1">
-                  {selectedFiles.map((file, index) => (
-                    <div key={index} className="flex items-center justify-between text-sm">
-                      <span className="truncate">{file.name}</span>
-                      <span className="text-gray-500">
-                        {(file.size / (1024 * 1024)).toFixed(2)} MB
-                      </span>
-                    </div>
-                  ))}
+                  {selectedFiles.map((file, index) => {
+                    const validation = fileValidations[index]
+                    const hasWarning = validation?.isExtensionMismatch || validation?.warning
+                    
+                    return (
+                      <div key={index} className={`flex items-center justify-between text-sm rounded px-2 py-1 ${
+                        hasWarning ? 'bg-yellow-50 border border-yellow-200' : 'bg-gray-50'
+                      }`}>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center space-x-1">
+                            <span className="truncate block">{file.name}</span>
+                            {hasWarning && (
+                              <ExclamationTriangleIcon className="h-4 w-4 text-yellow-600 flex-shrink-0" />
+                            )}
+                          </div>
+                          <span className="text-gray-500 text-xs">
+                            {(file.size / (1024 * 1024)).toFixed(2)} MB
+                          </span>
+                          {validation?.warning && (
+                            <div className="text-xs text-yellow-700 mt-1">
+                              {validation.warning}
+                            </div>
+                          )}
+                        </div>
+                        <button
+                          onClick={() => handleRemoveFile(index)}
+                          className="ml-2 p-1 text-gray-400 hover:text-red-600 transition-colors"
+                          title="Remove file"
+                        >
+                          <XMarkIcon className="h-4 w-4" />
+                        </button>
+                      </div>
+                    )
+                  })}
                 </div>
               </div>
             )}
@@ -347,7 +690,7 @@ export default function FilesPage() {
             <div className="flex justify-end space-x-3 pt-4">
               <Button
                 variant="outline"
-                onClick={() => setIsUploadModalOpen(false)}
+                onClick={handleCloseUploadModal}
               >
                 Cancel
               </Button>

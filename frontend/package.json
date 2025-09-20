@@ -13,6 +13,8 @@
     "@apollo/client": "^3.8.8",
     "@headlessui/react": "^1.7.17",
     "@heroicons/react": "^2.0.18",
+    "@types/apollo-upload-client": "^17.0.0",
+    "apollo-upload-client": "^17.0.0",
     "clsx": "^2.0.0",
     "graphql": "^16.8.1",
     "next": "14.0.4",

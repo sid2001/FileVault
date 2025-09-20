@@ -1,9 +1,11 @@
-import { ApolloClient, InMemoryCache, createHttpLink, from } from '@apollo/client'
+import { ApolloClient, InMemoryCache, from } from '@apollo/client'
 import { setContext } from '@apollo/client/link/context'
 import { onError } from '@apollo/client/link/error'
+import { createUploadLink } from "apollo-upload-client";
+
 import toast from 'react-hot-toast'
 
-const httpLink = createHttpLink({
+const uploadLink = createUploadLink({
   uri: process.env.NEXT_PUBLIC_GRAPHQL_URL || 'http://localhost:8080/graphql',
 })
 
@@ -47,15 +49,17 @@ const errorLink = onError(({ graphQLErrors, networkError, operation, forward }) 
 
 export function createApolloClient() {
   return new ApolloClient({
-    link: from([errorLink, authLink, httpLink]),
+    link: from([errorLink, authLink, uploadLink]),
     cache: new InMemoryCache({
       typePolicies: {
         Query: {
           fields: {
             files: {
-              keyArgs: ['filters'],
+              keyArgs: ['filters', 'limit', 'offset'],
               merge(existing = [], incoming) {
-                return [...existing, ...incoming]
+                // For search/filter queries, replace the existing data
+                // For pagination, append to existing data
+                return incoming
               },
             },
             folders: {

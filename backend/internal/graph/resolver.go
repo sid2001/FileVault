@@ -12,6 +12,7 @@ import (
 	"file-vault/internal/models"
 	"file-vault/internal/services"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -37,41 +38,102 @@ func (r *fileContentResolver) Size(ctx context.Context, obj *models.FileContent)
 
 // UploadFiles is the resolver for the uploadFiles field.
 func (r *mutationResolver) UploadFiles(ctx context.Context, files []*graphql.Upload, folderId *uuid.UUID) ([]*models.UserFile, error) {
-	panic("not implemented uploadFiles")
-	// userID, err := auth.RequireAuth(ctx)
-	// if err != nil {
-	// 	return nil, fmt.Errorf("authentication required")
-	// }
+	// panic("not implemented uploadFiles")
+	fmt.Printf(" UploadFiles: Starting UploadFiles query\n")
+	userID, err := auth.RequireAuth(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("authentication required")
+	}
 
 	// // Convert GraphQL uploads to service uploads
-	// var serviceFiles []*services.UploadedFile
-	// for _, file := range files {
-	// 	serviceFile := &services.UploadedFile{
-	// 		Filename: file.Filename,
-	// 		Content:  file.File,
-	// 		Size:     file.Size,
-	// 		MimeType: file.ContentType,
-	// 	}
-	// 	serviceFiles = append(serviceFiles, serviceFile)
-	// }
+	var serviceFiles []*services.UploadFile
+	for _, file := range files {
+		fileContent, err := io.ReadAll(file.File)
+		if err != nil {
+			fmt.Printf("Read failed: %v\n", err)
+			return nil, fmt.Errorf("Falied::Read file: %w", err)
+		}
+		fmt.Printf("Read file Content\n")
+		hash, err := GenerateSHA256Hash(&fileContent)
+		if err != nil {
+			fmt.Printf("failed hash generation: %v\n", err)
+			return nil, err
+		}
+		serviceFile := &services.UploadFile{
+			Content:  fileContent,
+			Size:     file.Size,
+			Hash:     hash,
+			MimeType: sanitizeMimeType(file.ContentType),
+			Name:     sanitizeFilename(file.Filename),
+		}
+		serviceFiles = append(serviceFiles, serviceFile)
+	}
+	fmt.Printf(" Generated hash for %d files\n", len(serviceFiles))
+	filePaths, err := r.FileService.UploadFiles(serviceFiles)
+	if err != nil {
+		return nil, err
+	}
+	for i, file := range serviceFiles {
+		var fileId uuid.UUID
+		query := `
+			INSERT INTO file_contents (sha256_hash, file_path, size, mime_type, reference_count)
+			VALUES ($1, $2, $3, $4, $5)
+			ON CONFLICT (sha256_hash)
+			DO UPDATE SET reference_count = file_contents.reference_count + 1
+			RETURNING id;`
 
-	// // Upload files
-	// uploadedFiles, err := r.FileService.UploadFiles(userID, serviceFiles, folderID)
-	// if err != nil {
-	// 	return nil, err
-	// }
+		// Debug logging to identify UTF-8 issues
+		fmt.Printf("DEBUG: Inserting file_content - Hash: %s, Path: %s, Size: %d, MimeType: %s\n",
+			file.Hash, filePaths[i], file.Size, file.MimeType)
 
-	// // Convert to GraphQL types
-	// var result []*models.UserFile
-	// for _, file := range uploadedFiles {
-	// 	graphqlFile, err := r.loadUserFileWithRelations(file.ID.String())
-	// 	if err != nil {
-	// 		return nil, err
-	// 	}
-	// 	result = append(result, graphqlFile)
-	// }
+		err := r.DB.QueryRow(query, file.Hash, filePaths[i], file.Size, file.MimeType, 1).Scan(&fileId)
+		if err != nil {
+			fmt.Printf("ERROR: Failed to insert file_content: %v\n", err)
+			return nil, fmt.Errorf("failed to insert file content: %w", err)
+		}
+		query = `
+			INSERT INTO user_files (user_id, file_content_id, filename, folder_id)	
+			VALUES ($1, $2, $3, $4);
+		`
+		// Debug logging for user_files insertion
+		fmt.Printf("DEBUG: Inserting user_file - UserID: %s, FileID: %s, Filename: %s, FolderID: %v\n",
+			userID, fileId, file.Name, folderId)
 
-	// return result, nil
+		_, err = r.DB.Exec(query, userID, fileId, file.Name, folderId)
+		if err != nil {
+			fmt.Printf("ERROR: Failed to insert user_file: %v\n", err)
+			return nil, fmt.Errorf("failed to insert user file: %w", err)
+		}
+	}
+
+	// Get the uploaded file IDs to return
+	var result []*models.UserFile
+	for _, file := range serviceFiles {
+		// Get the file content ID that was inserted
+		var fileContentID uuid.UUID
+		query := `SELECT id FROM file_contents WHERE sha256_hash = $1`
+		err := r.DB.QueryRow(query, file.Hash).Scan(&fileContentID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get file content ID: %w", err)
+		}
+
+		// Get the user file ID that was inserted
+		var userFileID uuid.UUID
+		query = `SELECT id FROM user_files WHERE user_id = $1 AND file_content_id = $2 AND filename = $3`
+		err = r.DB.QueryRow(query, userID, fileContentID, file.Name).Scan(&userFileID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get user file ID: %w", err)
+		}
+
+		// Load the full file object with relations
+		fullFile, err := r.loadUserFileWithRelations(userFileID.String())
+		if err != nil {
+			return nil, fmt.Errorf("failed to load file relations: %w", err)
+		}
+		result = append(result, fullFile)
+	}
+
+	return result, nil
 }
 
 // DeleteFile is the resolver for the deleteFile field.
@@ -293,7 +355,7 @@ func (r *queryResolver) Users(ctx context.Context, limit *int, offset *int) ([]*
 // Files is the resolver for the files field.
 func (r *queryResolver) Files(ctx context.Context, filters *backend.FileFiltersInput, limit *int, offset *int) ([]*models.UserFile, error) {
 	// panic("not implemented Files")
-
+	fmt.Printf(" Files: Starting Files query\n")
 	userID, err := auth.RequireAuth(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("authentication required")
@@ -313,6 +375,8 @@ func (r *queryResolver) Files(ctx context.Context, filters *backend.FileFiltersI
 	conditions := []string{}
 
 	if filters != nil {
+		fmt.Printf("Filter request\n")
+		fmt.Printf("Search: %s\n", *(filters.MimeType))
 		if filters.Search != nil && *filters.Search != "" {
 			argCount++
 			conditions = append(conditions, fmt.Sprintf("uf.filename ILIKE $%d", argCount))
@@ -321,8 +385,8 @@ func (r *queryResolver) Files(ctx context.Context, filters *backend.FileFiltersI
 
 		if filters.MimeType != nil && *filters.MimeType != "" {
 			argCount++
-			conditions = append(conditions, fmt.Sprintf("fc.mime_type = $%d", argCount))
-			args = append(args, *filters.MimeType)
+			conditions = append(conditions, fmt.Sprintf("fc.mime_type LIKE $%d", argCount))
+			args = append(args, *filters.MimeType + "%")
 		}
 
 		if filters.SizeMin != nil {
@@ -422,8 +486,13 @@ func (r *queryResolver) DownloadFile(ctx context.Context, id uuid.UUID) (string,
 }
 
 // Folders is the resolver for the folders field.
-func (r *queryResolver) Folders(ctx context.Context, parentID *uuid.UUID) ([]*models.Folder, error) {
+func (r *queryResolver) Folders(ctx context.Context, parentId *uuid.UUID) ([]*models.Folder, error) {
 	panic("not implemented Folders")
+	userId, err := auth.RequireAuth(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("Failed::User authentication: %w", err)
+	}
+	return r.loadFoldersWithRelations(userId, parentId)
 }
 
 // Folder is the resolver for the folder field.
