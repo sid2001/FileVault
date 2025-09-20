@@ -9,13 +9,13 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/google/uuid"
 	"github.com/lib/pq"
 )
 
-func (r *Resolver) loadFoldersWithRelations(userID string, parentID *uuid.UUID) ([]*models.Folder, error) {
-	
-}
+// func (r *Resolver) loadFoldersWithRelations(userID string, parentID *uuid.UUID) ([]*models.Folder, error) {
+// 	// query := `
+// 		// SELECT id, user_id, name, parent_folder_id, is_public, created_at, updated_at, `
+// }
 
 func (r *Resolver) loadUserFileWithRelations(fileID string) (*models.UserFile, error) {
 	query := `

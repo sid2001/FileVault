@@ -137,8 +137,63 @@ func (r *mutationResolver) UploadFiles(ctx context.Context, files []*graphql.Upl
 }
 
 // DeleteFile is the resolver for the deleteFile field.
-func (r *mutationResolver) DeleteFile(ctx context.Context, fileID uuid.UUID) (bool, error) {
-	panic("not implemented deleteFile")
+func (r *mutationResolver) DeleteFile(ctx context.Context, fileId uuid.UUID) (bool, error) {
+	// panic("not implemented deleteFile")
+	userID, err := auth.RequireAuth(ctx)
+	fmt.Printf(" DeleteFile: Starting DeleteFile query: %v\n", fileId.String())
+	if err != nil {
+		return false, fmt.Errorf("authentication required")
+	}
+	// transaction
+	tx, err := r.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+
+	// Verify file ownership
+	var exists bool
+	var fileContentID uuid.UUID
+	query := `SELECT file_content_id FROM user_files WHERE id = $1 AND user_id = $2`
+	err = tx.QueryRow(query, fileId, userID).Scan(&fileContentID)
+	exists = (err != sql.ErrNoRows)
+	if err != nil {
+		return false, err
+	} 
+	if exists {
+		// Delete file
+		fmt.Printf(" DeleteFile: Deleting file: %v\n", fileId.String())
+		query := `UPDATE file_contents SET reference_count = reference_count - 1 WHERE id = $1 RETURNING reference_count`
+		var referenceCount int
+
+		if err := tx.QueryRow(query, fileContentID).Scan(&referenceCount); err != nil {
+			fmt.Printf(" DeleteFile: Failed to update reference count: %v\n", err)
+			return false, err
+		}
+		fmt.Printf(" DeleteFile: Reference count updated: %v\n", referenceCount)
+		var filePath string
+		if referenceCount <= 0 {
+			query := `DELETE FROM file_contents WHERE id = $1 RETURNING file_path` 
+			if err := tx.QueryRow(query, fileContentID).Scan(&filePath); err != nil {
+				return false, err
+			}
+		}
+
+		query = `DELETE FROM user_files WHERE id = $1`
+		if _, err := tx.Exec(query, fileId); err != nil {
+			return false, err
+		}
+
+		if err := tx.Commit(); err != nil {
+			return false, err
+		}
+		if referenceCount <= 0 &&  r.FileService.DeleteFile(filePath) != nil {
+			fmt.Printf("Warning::Failed to delete the file from storage\n")
+		}
+		return true, nil
+	} else {
+		return false, fmt.Errorf("file not found or access denied")
+	}
 }
 
 // UpdateFile is the resolver for the updateFile field.
@@ -488,11 +543,11 @@ func (r *queryResolver) DownloadFile(ctx context.Context, id uuid.UUID) (string,
 // Folders is the resolver for the folders field.
 func (r *queryResolver) Folders(ctx context.Context, parentId *uuid.UUID) ([]*models.Folder, error) {
 	panic("not implemented Folders")
-	userId, err := auth.RequireAuth(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("Failed::User authentication: %w", err)
-	}
-	return r.loadFoldersWithRelations(userId, parentId)
+	// userId, err := auth.RequireAuth(ctx)
+	// if err != nil {
+	// 	return nil, fmt.Errorf("Failed::User authentication: %w", err)
+	// }
+	// return r.loadFoldersWithRelations(userId, parentId)
 }
 
 // Folder is the resolver for the folder field.

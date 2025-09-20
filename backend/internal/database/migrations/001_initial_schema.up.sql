@@ -122,15 +122,23 @@ RETURNS TRIGGER AS $$
 BEGIN
   UPDATE users u
   SET storage_quota = 
-  storage_quota - (OLD.size / NULLIF(OLD.reference_count, 0)) + (NEW.size / NULLIF(NEW.reference_count, 0))
+    storage_quota - 
+    CASE 
+      WHEN OLD.reference_count = 0 THEN 0 
+      ELSE OLD.size / OLD.reference_count 
+    END + 
+    CASE
+      WHEN NEW.reference_count = 0 THEN NEW.size
+      ELSE NEW.size / NEW.reference_count
+    END
   WHERE u.id IN (
     SELECT user_id
     FROM user_files
     WHERE file_content_id = NEW.id
   );
 
-  RETURN NEW; -- will get ignored as trigger is after update
-  END;
+  RETURN NEW;
+END;
 $$ language 'plpgsql';
 
 

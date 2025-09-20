@@ -25,6 +25,16 @@ func NewFileService(dedupService *DeduplicationService, storagePath string) *Fil
 	}
 }
 
+func (fs *FileService) DeleteFile(filePath string) error {
+	// check refere
+	fmt.Printf("Deleting file path: %s\n", filePath)
+	err := os.Remove(filePath)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (fs *FileService) UploadFiles(files []*UploadFile) ([]string, error) {
 	// change this process to handle reverting failed uploads
 	var filePaths []string

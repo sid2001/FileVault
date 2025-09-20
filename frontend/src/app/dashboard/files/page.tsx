@@ -67,8 +67,8 @@ const UPLOAD_FILES_MUTATION = gql`
 `
 
 const DELETE_FILE_MUTATION = gql`
-  mutation DeleteFile($fileID: ID!) {
-    deleteFile(fileID: $fileID)
+  mutation DeleteFile($fileId: ID!) {
+    deleteFile(fileId: $fileId)
   }
 `
 
@@ -217,7 +217,7 @@ export default function FilesPage() {
 
     try {
       await deleteFile({
-        variables: { fileID: fileId },
+        variables: { fileId: fileId },
       })
       toast.success('File deleted successfully')
       refetch()
