@@ -35,6 +35,7 @@ import {
   ArchiveBoxIcon,
   UserIcon,
   ClipboardDocumentIcon,
+  PencilIcon,
 } from '@heroicons/react/24/outline'
 import toast from 'react-hot-toast'
 
@@ -104,6 +105,35 @@ const DOWNLOAD_FILE_QUERY = gql`
   }
 `
 
+const UPDATE_FILE_MUTATION = gql`
+  mutation UpdateFile($fileId: ID!, $input: UpdateFileInput!) {
+    updateFile(fileId: $fileId, input: $input) {
+      id
+      filename
+      isPublic
+      tags
+      folder {
+        id
+        name
+      }
+      user {
+        id
+        username
+        email
+      }
+      fileContent {
+        id
+        size
+        mimeType
+        sha256Hash
+      }
+      createdAt
+      updatedAt
+      downloadCount
+    }
+  }
+`
+
 export default function FilesPage() {
   const { isAuthenticated, loading } = useAuth()
   const router = useRouter()
@@ -116,6 +146,13 @@ export default function FilesPage() {
   const [showFilters, setShowFilters] = useState(false)
   const [isFileDetailsModalOpen, setIsFileDetailsModalOpen] = useState(false)
   const [selectedFileForDetails, setSelectedFileForDetails] = useState<any>(null)
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false)
+  const [selectedFileForEdit, setSelectedFileForEdit] = useState<any>(null)
+  const [editForm, setEditForm] = useState({
+    filename: '',
+    tags: [] as string[],
+    isPublic: false,
+  })
   const [filters, setFilters] = useState({
     mimeType: '',
     sizeMin: '',
@@ -179,6 +216,7 @@ export default function FilesPage() {
   const [uploadFiles] = useMutation(UPLOAD_FILES_MUTATION)
   const [deleteFile] = useMutation(DELETE_FILE_MUTATION)
   const [shareFile] = useMutation(SHARE_FILE_MUTATION)
+  const [updateFile] = useMutation(UPDATE_FILE_MUTATION)
   const [getDownloadUrl] = useLazyQuery(DOWNLOAD_FILE_QUERY)
 
   // Refetch files when authentication status changes
@@ -323,6 +361,49 @@ export default function FilesPage() {
     } catch (error: any) {
       console.error('Share error:', error)
       toast.error(error.message || 'Share failed')
+    }
+  }
+
+  const handleEditFile = (file: any) => {
+    setSelectedFileForEdit(file)
+    setEditForm({
+      filename: file.filename,
+      tags: file.tags || [],
+      isPublic: file.isPublic,
+    })
+    setIsEditModalOpen(true)
+  }
+
+  const handleCloseEditModal = () => {
+    setIsEditModalOpen(false)
+    setSelectedFileForEdit(null)
+    setEditForm({
+      filename: '',
+      tags: [],
+      isPublic: false,
+    })
+  }
+
+  const handleUpdateFile = async () => {
+    if (!selectedFileForEdit) return
+
+    try {
+      await updateFile({
+        variables: {
+          fileId: selectedFileForEdit.id,
+          input: {
+            filename: editForm.filename,
+            tags: editForm.tags,
+            isPublic: editForm.isPublic,
+          },
+        },
+      })
+      toast.success('File updated successfully')
+      refetch()
+      handleCloseEditModal()
+    } catch (error: any) {
+      console.error('Update error:', error)
+      toast.error(error.message || 'Update failed')
     }
   }
 
@@ -672,6 +753,13 @@ export default function FilesPage() {
                         title="View Details"
                       >
                         <EyeIcon className="h-4 w-4" />
+                      </button>
+                      <button
+                        onClick={() => handleEditFile(file)}
+                        className="p-1 text-gray-400 hover:text-green-600"
+                        title="Edit File"
+                      >
+                        <PencilIcon className="h-4 w-4" />
                       </button>
                       <button
                         onClick={() => handleDownloadFile(file.id, file.filename)}
@@ -1133,6 +1221,13 @@ export default function FilesPage() {
               <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200">
                 <Button
                   variant="outline"
+                  onClick={() => handleEditFile(selectedFileForDetails)}
+                >
+                  <PencilIcon className="h-4 w-4 mr-2" />
+                  Edit
+                </Button>
+                <Button
+                  variant="outline"
                   onClick={() => handleDownloadFile(selectedFileForDetails.id, selectedFileForDetails.filename)}
                 >
                   <CloudArrowDownIcon className="h-4 w-4 mr-2" />
@@ -1150,6 +1245,114 @@ export default function FilesPage() {
                   onClick={handleCloseFileDetailsModal}
                 >
                   Close
+                </Button>
+              </div>
+            </div>
+          )}
+        </Modal>
+
+        {/* Edit File Modal */}
+        <Modal
+          isOpen={isEditModalOpen}
+          onClose={handleCloseEditModal}
+          title="Edit File"
+          size="lg"
+        >
+          {selectedFileForEdit && (
+            <div className="space-y-6">
+              {/* File Header */}
+              <div className="flex items-center space-x-4">
+                {(() => {
+                  const FileIcon = getFileIcon(selectedFileForEdit.fileContent.mimeType)
+                  return <FileIcon className="h-12 w-12 text-gray-400 flex-shrink-0" />
+                })()}
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-lg font-medium text-gray-900 truncate">
+                    {selectedFileForEdit.filename}
+                  </h3>
+                  <p className="text-sm text-gray-500">
+                    {getFileTypeCategory(selectedFileForEdit.fileContent.mimeType)}
+                  </p>
+                </div>
+              </div>
+
+              {/* Edit Form */}
+              <div className="space-y-4">
+                {/* Filename */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Filename
+                  </label>
+                  <input
+                    type="text"
+                    value={editForm.filename}
+                    onChange={(e) => setEditForm({ ...editForm, filename: e.target.value })}
+                    className="block w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
+                    placeholder="Enter filename"
+                  />
+                </div>
+
+                {/* Tags */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Tags (comma-separated)
+                  </label>
+                  <input
+                    type="text"
+                    value={editForm.tags.join(', ')}
+                    onChange={(e) => {
+                      const tags = e.target.value.split(',').map(tag => tag.trim()).filter(tag => tag)
+                      setEditForm({ ...editForm, tags })
+                    }}
+                    className="block w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
+                    placeholder="tag1, tag2, tag3"
+                  />
+                </div>
+
+                {/* Visibility */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Visibility
+                  </label>
+                  <div className="space-y-2">
+                    <label className="flex items-center">
+                      <input
+                        type="radio"
+                        name="visibility"
+                        checked={editForm.isPublic === true}
+                        onChange={() => setEditForm({ ...editForm, isPublic: true })}
+                        className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300"
+                      />
+                      <span className="ml-2 text-sm text-gray-700">Public - Anyone can view this file</span>
+                    </label>
+                    <label className="flex items-center">
+                      <input
+                        type="radio"
+                        name="visibility"
+                        checked={editForm.isPublic === false}
+                        onChange={() => setEditForm({ ...editForm, isPublic: false })}
+                        className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300"
+                      />
+                      <span className="ml-2 text-sm text-gray-700">Private - Only you can view this file</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200">
+                <Button
+                  variant="outline"
+                  onClick={handleCloseEditModal}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleUpdateFile}
+                  disabled={!editForm.filename.trim()}
+                >
+                  <PencilIcon className="h-4 w-4 mr-2" />
+                  Update File
                 </Button>
               </div>
             </div>
