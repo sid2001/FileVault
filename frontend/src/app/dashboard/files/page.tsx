@@ -25,6 +25,14 @@ import {
   MagnifyingGlassIcon,
   XMarkIcon,
   ExclamationTriangleIcon,
+  InformationCircleIcon,
+  CalendarIcon,
+  TagIcon,
+  DocumentTextIcon,
+  PhotoIcon,
+  VideoCameraIcon,
+  MusicalNoteIcon,
+  ArchiveBoxIcon,
 } from '@heroicons/react/24/outline'
 import toast from 'react-hot-toast'
 
@@ -51,6 +59,7 @@ const FILES_QUERY = gql`
     }
   }
 `
+
 
 const UPLOAD_FILES_MUTATION = gql`
   mutation UploadFiles($files: [Upload!]!, $folderId: ID) {
@@ -92,6 +101,8 @@ export default function FilesPage() {
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null)
   const [showAddMoreFiles, setShowAddMoreFiles] = useState(false)
   const [showFilters, setShowFilters] = useState(false)
+  const [isFileDetailsModalOpen, setIsFileDetailsModalOpen] = useState(false)
+  const [selectedFileForDetails, setSelectedFileForDetails] = useState<any>(null)
   const [filters, setFilters] = useState({
     mimeType: '',
     sizeMin: '',
@@ -102,6 +113,12 @@ export default function FilesPage() {
     isPublic: null as boolean | null,
   })
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('')
+  const [currentPage, setCurrentPage] = useState(1)
+  const [totalCount, setTotalCount] = useState(0)
+  const [hasNextPage, setHasNextPage] = useState(false)
+  const [hasPreviousPage, setHasPreviousPage] = useState(false)
+
+  const ITEMS_PER_PAGE = 20
 
   // Debounce search term
   useEffect(() => {
@@ -111,6 +128,11 @@ export default function FilesPage() {
 
     return () => clearTimeout(timer)
   }, [searchTerm])
+
+  // Reset pagination when filters change
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [debouncedSearchTerm, filters, selectedFolder])
 
   // Build filters object
   const buildFilters = () => {
@@ -132,13 +154,14 @@ export default function FilesPage() {
   const { data, loading: filesLoading, refetch } = useQuery(FILES_QUERY, {
     variables: {
       filters: buildFilters(),
-      limit: 50,
-      offset: 0,
+      limit: ITEMS_PER_PAGE,
+      offset: (currentPage - 1) * ITEMS_PER_PAGE,
     },
     skip: !isAuthenticated,
     fetchPolicy: 'cache-and-network',
     notifyOnNetworkStatusChange: true,
   })
+
 
   const [uploadFiles] = useMutation(UPLOAD_FILES_MUTATION)
   const [deleteFile] = useMutation(DELETE_FILE_MUTATION)
@@ -150,6 +173,33 @@ export default function FilesPage() {
       refetch()
     }
   }, [isAuthenticated, refetch])
+
+  // Calculate pagination state
+  useEffect(() => {
+    if (data?.files) {
+      const currentFilesCount = data.files.length
+      const totalPages = Math.ceil(totalCount / ITEMS_PER_PAGE)
+      
+      setHasNextPage(currentPage < totalPages)
+      setHasPreviousPage(currentPage > 1)
+    }
+  }, [data, currentPage, totalCount])
+
+  // Update total count when data changes
+  useEffect(() => {
+    if (data?.files) {
+      const currentFilesCount = data.files.length
+      
+      if (currentFilesCount === ITEMS_PER_PAGE) {
+        // If we got a full page, there might be more
+        // We'll estimate by adding 1 to current count to indicate there might be more
+        setTotalCount(currentPage * ITEMS_PER_PAGE + 1)
+      } else {
+        // If we got less than a full page, this is the last page
+        setTotalCount((currentPage - 1) * ITEMS_PER_PAGE + currentFilesCount)
+      }
+    }
+  }, [data, currentPage])
 
   if (loading) {
     return (
@@ -182,6 +232,25 @@ export default function FilesPage() {
       hour: '2-digit',
       minute: '2-digit',
     })
+  }
+
+  const getFileIcon = (mimeType: string) => {
+    if (mimeType.startsWith('image/')) return PhotoIcon
+    if (mimeType.startsWith('video/')) return VideoCameraIcon
+    if (mimeType.startsWith('audio/')) return MusicalNoteIcon
+    if (mimeType.includes('pdf') || mimeType.includes('document') || mimeType.includes('text')) return DocumentTextIcon
+    if (mimeType.includes('zip') || mimeType.includes('rar') || mimeType.includes('archive')) return ArchiveBoxIcon
+    return DocumentIcon
+  }
+
+  const getFileTypeCategory = (mimeType: string) => {
+    if (mimeType.startsWith('image/')) return 'Image'
+    if (mimeType.startsWith('video/')) return 'Video'
+    if (mimeType.startsWith('audio/')) return 'Audio'
+    if (mimeType.includes('pdf')) return 'PDF Document'
+    if (mimeType.includes('document') || mimeType.includes('text')) return 'Document'
+    if (mimeType.includes('zip') || mimeType.includes('rar') || mimeType.includes('archive')) return 'Archive'
+    return 'File'
   }
 
   const handleFileUpload = async () => {
@@ -269,6 +338,16 @@ export default function FilesPage() {
     setShowAddMoreFiles(false)
   }
 
+  const handleViewFileDetails = (file: any) => {
+    setSelectedFileForDetails(file)
+    setIsFileDetailsModalOpen(true)
+  }
+
+  const handleCloseFileDetailsModal = () => {
+    setIsFileDetailsModalOpen(false)
+    setSelectedFileForDetails(null)
+  }
+
   const handleFileValidation = (validations: FileValidationResult[]) => {
     setFileValidations(validations)
   }
@@ -304,6 +383,22 @@ export default function FilesPage() {
            filters.tags.length > 0 || 
            filters.isPublic !== null ||
            selectedFolder
+  }
+
+  const handlePageChange = (newPage: number) => {
+    setCurrentPage(newPage)
+  }
+
+  const handleNextPage = () => {
+    if (hasNextPage) {
+      setCurrentPage(prev => prev + 1)
+    }
+  }
+
+  const handlePreviousPage = () => {
+    if (hasPreviousPage) {
+      setCurrentPage(prev => prev - 1)
+    }
   }
 
   return (
@@ -511,6 +606,13 @@ export default function FilesPage() {
                     <DocumentIcon className="h-8 w-8 text-gray-400" />
                     <div className="flex space-x-1">
                       <button
+                        onClick={() => handleViewFileDetails(file)}
+                        className="p-1 text-gray-400 hover:text-blue-600"
+                        title="View Details"
+                      >
+                        <EyeIcon className="h-4 w-4" />
+                      </button>
+                      <button
                         onClick={() => handleDownloadFile(file.id, file.filename)}
                         className="p-1 text-gray-400 hover:text-gray-600"
                         title="Download"
@@ -597,6 +699,107 @@ export default function FilesPage() {
               </div>
             </CardContent>
           </Card>
+        )}
+
+        {/* Pagination Controls */}
+        {!filesLoading && files.length > 0 && (
+          <div className="flex items-center justify-between border-t border-gray-200 bg-white px-4 py-3 sm:px-6">
+            <div className="flex flex-1 justify-between sm:hidden">
+              <Button
+                variant="outline"
+                onClick={handlePreviousPage}
+                disabled={!hasPreviousPage}
+                className="relative inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                Previous
+              </Button>
+              <Button
+                variant="outline"
+                onClick={handleNextPage}
+                disabled={!hasNextPage}
+                className="relative ml-3 inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                Next
+              </Button>
+            </div>
+            <div className="hidden sm:flex sm:flex-1 sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm text-gray-700">
+                  Showing{' '}
+                  <span className="font-medium">
+                    {(currentPage - 1) * ITEMS_PER_PAGE + 1}
+                  </span>{' '}
+                  to{' '}
+                  <span className="font-medium">
+                    {Math.min(currentPage * ITEMS_PER_PAGE, totalCount)}
+                  </span>{' '}
+                  of{' '}
+                  <span className="font-medium">{totalCount}</span>{' '}
+                  results
+                </p>
+              </div>
+              <div>
+                <nav className="isolate inline-flex -space-x-px rounded-md shadow-sm" aria-label="Pagination">
+                  <Button
+                    variant="outline"
+                    onClick={handlePreviousPage}
+                    disabled={!hasPreviousPage}
+                    className="relative inline-flex items-center rounded-l-md px-2 py-2 text-gray-400 ring-1 ring-inset ring-gray-300 hover:bg-gray-50 focus:z-20 focus:outline-offset-0"
+                  >
+                    <span className="sr-only">Previous</span>
+                    <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                      <path fillRule="evenodd" d="M12.79 5.23a.75.75 0 01-.02 1.06L8.832 10l3.938 3.71a.75.75 0 11-1.04 1.08l-4.5-4.25a.75.75 0 010-1.08l4.5-4.25a.75.75 0 011.06.02z" clipRule="evenodd" />
+                    </svg>
+                  </Button>
+                  
+                  {/* Page numbers */}
+                  {(() => {
+                    const totalPages = Math.ceil(totalCount / ITEMS_PER_PAGE)
+                    const pages = []
+                    const maxVisiblePages = 5
+                    
+                    let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2))
+                    let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1)
+                    
+                    if (endPage - startPage + 1 < maxVisiblePages) {
+                      startPage = Math.max(1, endPage - maxVisiblePages + 1)
+                    }
+                    
+                    for (let i = startPage; i <= endPage; i++) {
+                      pages.push(
+                        <Button
+                          key={i}
+                          variant={i === currentPage ? "primary" : "outline"}
+                          onClick={() => handlePageChange(i)}
+                          className={`relative inline-flex items-center px-4 py-2 text-sm font-semibold ${
+                            i === currentPage
+                              ? 'z-10 bg-primary-600 text-white focus:z-20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600'
+                              : 'text-gray-900 ring-1 ring-inset ring-gray-300 hover:bg-gray-50 focus:z-20 focus:outline-offset-0'
+                          }`}
+                        >
+                          {i}
+                        </Button>
+                      )
+                    }
+                    
+                    return pages
+                  })()}
+                  
+                  <Button
+                    variant="outline"
+                    onClick={handleNextPage}
+                    disabled={!hasNextPage}
+                    className="relative inline-flex items-center rounded-r-md px-2 py-2 text-gray-400 ring-1 ring-inset ring-gray-300 hover:bg-gray-50 focus:z-20 focus:outline-offset-0"
+                  >
+                    <span className="sr-only">Next</span>
+                    <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                      <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clipRule="evenodd" />
+                    </svg>
+                  </Button>
+                </nav>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* Upload Modal */}
@@ -702,6 +905,174 @@ export default function FilesPage() {
               </Button>
             </div>
           </div>
+        </Modal>
+
+        {/* File Details Modal */}
+        <Modal
+          isOpen={isFileDetailsModalOpen}
+          onClose={handleCloseFileDetailsModal}
+          title="File Details"
+          size="lg"
+        >
+          {selectedFileForDetails && (
+            <div className="space-y-6">
+              {/* File Header */}
+              <div className="flex items-start space-x-4">
+                {(() => {
+                  const FileIcon = getFileIcon(selectedFileForDetails.fileContent.mimeType)
+                  return <FileIcon className="h-12 w-12 text-gray-400 flex-shrink-0" />
+                })()}
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-lg font-medium text-gray-900 truncate">
+                    {selectedFileForDetails.filename}
+                  </h3>
+                  <p className="text-sm text-gray-500">
+                    {getFileTypeCategory(selectedFileForDetails.fileContent.mimeType)}
+                  </p>
+                  <div className="flex items-center space-x-4 mt-2">
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                      selectedFileForDetails.isPublic 
+                        ? 'bg-green-100 text-green-800' 
+                        : 'bg-gray-100 text-gray-800'
+                    }`}>
+                      {selectedFileForDetails.isPublic ? 'Public' : 'Private'}
+                    </span>
+                    <span className="text-sm text-gray-500">
+                      {selectedFileForDetails.downloadCount} downloads
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* File Information Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Basic Information */}
+                <div className="space-y-4">
+                  <h4 className="text-sm font-medium text-gray-900 flex items-center">
+                    <InformationCircleIcon className="h-4 w-4 mr-2" />
+                    Basic Information
+                  </h4>
+                  <div className="space-y-3">
+                    <div className="flex justify-between">
+                      <span className="text-sm text-gray-500">File Size:</span>
+                      <span className="text-sm font-medium text-gray-900">
+                        {formatBytes(selectedFileForDetails.fileContent.size)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-sm text-gray-500">MIME Type:</span>
+                      <span className="text-sm font-medium text-gray-900">
+                        {selectedFileForDetails.fileContent.mimeType}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-sm text-gray-500">SHA256 Hash:</span>
+                      <span className="text-sm font-mono text-gray-900 break-all">
+                        {selectedFileForDetails.fileContent.sha256Hash}
+                      </span>
+                    </div>
+                    {selectedFileForDetails.folder && (
+                      <div className="flex justify-between">
+                        <span className="text-sm text-gray-500">Folder:</span>
+                        <span className="text-sm font-medium text-gray-900">
+                          {selectedFileForDetails.folder.name}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Timestamps */}
+                <div className="space-y-4">
+                  <h4 className="text-sm font-medium text-gray-900 flex items-center">
+                    <CalendarIcon className="h-4 w-4 mr-2" />
+                    Timestamps
+                  </h4>
+                  <div className="space-y-3">
+                    <div className="flex justify-between">
+                      <span className="text-sm text-gray-500">Created:</span>
+                      <span className="text-sm font-medium text-gray-900">
+                        {formatDate(selectedFileForDetails.createdAt)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-sm text-gray-500">Last Modified:</span>
+                      <span className="text-sm font-medium text-gray-900">
+                        {formatDate(selectedFileForDetails.updatedAt)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-sm text-gray-500">File ID:</span>
+                      <span className="text-sm font-mono text-gray-900">
+                        {selectedFileForDetails.id}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Tags */}
+              {selectedFileForDetails.tags && selectedFileForDetails.tags.length > 0 && (
+                <div className="space-y-4">
+                  <h4 className="text-sm font-medium text-gray-900 flex items-center">
+                    <TagIcon className="h-4 w-4 mr-2" />
+                    Tags
+                  </h4>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedFileForDetails.tags.map((tag: string, index: number) => (
+                      <span
+                        key={index}
+                        className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800"
+                      >
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* File Preview */}
+              {selectedFileForDetails.fileContent.mimeType.startsWith('image/') && (
+                <div className="space-y-4">
+                  <h4 className="text-sm font-medium text-gray-900">Preview</h4>
+                  <div className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+                    <img
+                      src={`/api/files/${selectedFileForDetails.id}/preview`}
+                      alt={selectedFileForDetails.filename}
+                      className="max-w-full max-h-64 mx-auto rounded"
+                      onError={(e) => {
+                        e.currentTarget.style.display = 'none'
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200">
+                <Button
+                  variant="outline"
+                  onClick={() => handleDownloadFile(selectedFileForDetails.id, selectedFileForDetails.filename)}
+                >
+                  <CloudArrowDownIcon className="h-4 w-4 mr-2" />
+                  Download
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => handleShareFile(selectedFileForDetails.id)}
+                >
+                  <ShareIcon className="h-4 w-4 mr-2" />
+                  Share
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={handleCloseFileDetailsModal}
+                >
+                  Close
+                </Button>
+              </div>
+            </div>
+          )}
         </Modal>
       </div>
     </DashboardLayout>

@@ -55,7 +55,7 @@ func (ss *StorageService) GetUserStats(userID string) (*models.StorageStats, err
 	query := `
 		WITH user_storage_data AS (
 			SELECT 
-				COALESCE(SUM(fc.size), 0) as total_deduplicated,
+				COALESCE(SUM(fc.size / fc.reference_count), 0) as total_deduplicated,
 				COALESCE(SUM(fc.size), 0) as total_original, -- For single user, this is the same
 				1 as user_count,
 				COUNT(fc.id) as file_count
