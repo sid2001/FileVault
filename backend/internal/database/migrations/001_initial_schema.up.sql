@@ -90,6 +90,9 @@ CREATE TABLE audit_logs (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+
+
+
 CREATE INDEX idx_users_email ON users(email);
 CREATE INDEX idx_users_username ON users(username);
 CREATE INDEX idx_file_contents_hash ON file_contents(sha256_hash);
@@ -106,6 +109,7 @@ CREATE INDEX idx_file_shares_shared_with_user_id ON file_shares(shared_with_user
 CREATE INDEX idx_audit_logs_user_id ON audit_logs(user_id);
 CREATE INDEX idx_audit_logs_file_id ON audit_logs(file_id);
 CREATE INDEX idx_audit_logs_created_at ON audit_logs(created_at);
+
 
 
 CREATE OR REPLACE FUNCTION update_updated_at_column()

@@ -2,7 +2,10 @@ package services
 
 import (
 	"fmt"
+	"io"
+	"net/http"
 	"os"
+	"strconv"
 )
 
 type FileService struct {
@@ -71,4 +74,33 @@ func (fs *FileService) UploadFiles(files []*UploadFile) ([]string, error) {
 		}
 	}
 	return filePaths, nil
+}
+
+func (fs *FileService) DownloadFile(w *http.ResponseWriter, filePath string, fileName string, mimeType string) error {
+	// check if file exists
+	if stat, err := os.Stat(fs.storagePath + filePath); os.IsNotExist(err) {
+		return fmt.Errorf("file not found")
+	} else if err != nil {
+		return fmt.Errorf("failed to stat file: %w", err)
+	} else {
+		(*w).Header().Set("Content-Type", mimeType)
+		(*w).Header().Set("Content-Length", strconv.FormatInt(stat.Size(), 10))
+		(*w).Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", fileName))
+
+		// could add cache header for public files
+		// not sure if its right cause public files can be changed to private
+
+		file, err := os.Open(fs.storagePath + filePath)
+		if err != nil {
+			return fmt.Errorf("failed to open file: %w", err)
+		}
+		defer file.Close()
+		_, err = io.Copy(*w, file)
+		if err != nil {
+			return fmt.Errorf("failed to copy file: %w", err)
+		}
+
+		return nil
+	}
+
 }

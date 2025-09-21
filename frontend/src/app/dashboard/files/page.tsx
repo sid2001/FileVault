@@ -7,7 +7,7 @@ import { FileValidationResult } from '@/lib/fileValidation'
 export const dynamic = 'force-dynamic'
 import { useAuth } from '@/contexts/AuthContext'
 import { useRouter } from 'next/navigation'
-import { useQuery, useMutation } from '@apollo/client'
+import { useQuery, useMutation, useLazyQuery } from '@apollo/client'
 import { gql } from '@apollo/client'
 import DashboardLayout from '@/components/layout/DashboardLayout'
 import { Button } from '@/components/ui/Button'
@@ -33,6 +33,8 @@ import {
   VideoCameraIcon,
   MusicalNoteIcon,
   ArchiveBoxIcon,
+  UserIcon,
+  ClipboardDocumentIcon,
 } from '@heroicons/react/24/outline'
 import toast from 'react-hot-toast'
 
@@ -46,6 +48,11 @@ const FILES_QUERY = gql`
       isPublic
       downloadCount
       tags
+      user {
+        id
+        username
+        email
+      }
       fileContent {
         id
         size
@@ -88,6 +95,12 @@ const SHARE_FILE_MUTATION = gql`
       shareType
       createdAt
     }
+  }
+`
+
+const DOWNLOAD_FILE_QUERY = gql`
+  query DownloadFile($fileId: ID!) {
+    downloadFile(id: $fileId)
   }
 `
 
@@ -166,6 +179,7 @@ export default function FilesPage() {
   const [uploadFiles] = useMutation(UPLOAD_FILES_MUTATION)
   const [deleteFile] = useMutation(DELETE_FILE_MUTATION)
   const [shareFile] = useMutation(SHARE_FILE_MUTATION)
+  const [getDownloadUrl] = useLazyQuery(DOWNLOAD_FILE_QUERY)
 
   // Refetch files when authentication status changes
   useEffect(() => {
@@ -312,9 +326,56 @@ export default function FilesPage() {
     }
   }
 
-  const handleDownloadFile = (fileId: string, filename: string) => {
-    // This would typically make a request to get the download URL
-    toast(`Downloading ${filename}...`)
+  const handleDownloadFile = async (fileId: string, filename: string) => {
+    try {
+      toast(`Getting download link for ${filename}...`)
+      
+      const { data } = await getDownloadUrl({
+        variables: { fileId: fileId },
+      })
+
+      if (data?.downloadFile) {
+        // Add authorization header by using fetch
+        const URL = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'}${data.downloadFile}`
+        console.log(URL)
+        const response = await fetch(URL, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+            
+          },
+        })
+
+        if (!response.ok) {
+          throw new Error(`Download failed: ${response.statusText}`)
+        }
+
+        // Get the blob and create download link
+        const blob = await response.blob()
+        const url = window.URL.createObjectURL(blob)
+        
+        // Create a temporary link and trigger download
+        const link = document.createElement('a')
+        link.href = url
+        link.download = filename
+        link.target = '_blank'
+        
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        
+        // Clean up the blob URL
+        window.URL.revokeObjectURL(url)
+        
+        toast.success(`${filename} downloaded successfully`)
+        
+        // Refetch files to update download count
+        refetch()
+      }
+    } catch (error: any) {
+      console.error('Download error:', error)
+      toast.error(error.message || 'Download failed')
+    }
   }
 
   const handleRemoveFile = (index: number) => {
@@ -643,6 +704,10 @@ export default function FilesPage() {
                   <p className="text-sm text-gray-500 mt-1">
                     {formatBytes(file.fileContent.size)}
                   </p>
+                  <div className="flex items-center text-xs text-gray-500 mt-1">
+                    <UserIcon className="h-3 w-3 mr-1" />
+                    <span>by {file.user?.username || 'Unknown User'}</span>
+                  </div>
                   <p className="text-xs text-gray-400 mt-1">
                     {formatDate(file.createdAt)}
                   </p>
@@ -965,11 +1030,24 @@ export default function FilesPage() {
                         {selectedFileForDetails.fileContent.mimeType}
                       </span>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-sm text-gray-500">SHA256 Hash:</span>
-                      <span className="text-sm font-mono text-gray-900 break-all">
-                        {selectedFileForDetails.fileContent.sha256Hash}
-                      </span>
+                    <div className="flex flex-col">
+                      <span className="text-sm text-gray-500 mb-1">SHA256 Hash:</span>
+                      <div className="flex items-center space-x-2">
+                        <span className="text-xs font-mono text-gray-900 bg-gray-100 px-2 py-1 rounded border">
+                          {selectedFileForDetails.fileContent.sha256Hash.substring(0, 16)}...
+                        </span>
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(selectedFileForDetails.fileContent.sha256Hash)
+                            toast.success('SHA256 hash copied to clipboard')
+                          }}
+                          className="flex items-center text-xs text-blue-600 hover:text-blue-800 hover:bg-blue-50 px-2 py-1 rounded transition-colors"
+                          title="Copy full hash"
+                        >
+                          <ClipboardDocumentIcon className="h-3 w-3 mr-1" />
+                          Copy
+                        </button>
+                      </div>
                     </div>
                     {selectedFileForDetails.folder && (
                       <div className="flex justify-between">
@@ -979,6 +1057,15 @@ export default function FilesPage() {
                         </span>
                       </div>
                     )}
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-gray-500 flex items-center">
+                        <UserIcon className="h-4 w-4 mr-1" />
+                        Uploaded by:
+                      </span>
+                      <span className="text-sm font-medium text-gray-900">
+                        {selectedFileForDetails.user?.username || 'Unknown User'}
+                      </span>
+                    </div>
                   </div>
                 </div>
 
@@ -999,12 +1086,6 @@ export default function FilesPage() {
                       <span className="text-sm text-gray-500">Last Modified:</span>
                       <span className="text-sm font-medium text-gray-900">
                         {formatDate(selectedFileForDetails.updatedAt)}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-sm text-gray-500">File ID:</span>
-                      <span className="text-sm font-mono text-gray-900">
-                        {selectedFileForDetails.id}
                       </span>
                     </div>
                   </div>

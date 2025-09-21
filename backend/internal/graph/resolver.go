@@ -137,63 +137,8 @@ func (r *mutationResolver) UploadFiles(ctx context.Context, files []*graphql.Upl
 }
 
 // DeleteFile is the resolver for the deleteFile field.
-func (r *mutationResolver) DeleteFile(ctx context.Context, fileId uuid.UUID) (bool, error) {
-	// panic("not implemented deleteFile")
-	userID, err := auth.RequireAuth(ctx)
-	fmt.Printf(" DeleteFile: Starting DeleteFile query: %v\n", fileId.String())
-	if err != nil {
-		return false, fmt.Errorf("authentication required")
-	}
-	// transaction
-	tx, err := r.DB.BeginTx(ctx, nil)
-	if err != nil {
-		return false, err
-	}
-	defer tx.Rollback()
-
-	// Verify file ownership
-	var exists bool
-	var fileContentID uuid.UUID
-	query := `SELECT file_content_id FROM user_files WHERE id = $1 AND user_id = $2`
-	err = tx.QueryRow(query, fileId, userID).Scan(&fileContentID)
-	exists = (err != sql.ErrNoRows)
-	if err != nil {
-		return false, err
-	} 
-	if exists {
-		// Delete file
-		fmt.Printf(" DeleteFile: Deleting file: %v\n", fileId.String())
-		query := `UPDATE file_contents SET reference_count = reference_count - 1 WHERE id = $1 RETURNING reference_count`
-		var referenceCount int
-
-		if err := tx.QueryRow(query, fileContentID).Scan(&referenceCount); err != nil {
-			fmt.Printf(" DeleteFile: Failed to update reference count: %v\n", err)
-			return false, err
-		}
-		fmt.Printf(" DeleteFile: Reference count updated: %v\n", referenceCount)
-		var filePath string
-		if referenceCount <= 0 {
-			query := `DELETE FROM file_contents WHERE id = $1 RETURNING file_path` 
-			if err := tx.QueryRow(query, fileContentID).Scan(&filePath); err != nil {
-				return false, err
-			}
-		}
-
-		query = `DELETE FROM user_files WHERE id = $1`
-		if _, err := tx.Exec(query, fileId); err != nil {
-			return false, err
-		}
-
-		if err := tx.Commit(); err != nil {
-			return false, err
-		}
-		if referenceCount <= 0 &&  r.FileService.DeleteFile(filePath) != nil {
-			fmt.Printf("Warning::Failed to delete the file from storage\n")
-		}
-		return true, nil
-	} else {
-		return false, fmt.Errorf("file not found or access denied")
-	}
+func (r *mutationResolver) DeleteFile(ctx context.Context, fileID uuid.UUID) (bool, error) {
+	panic("not implemented deleteFile")
 }
 
 // UpdateFile is the resolver for the updateFile field.
@@ -441,7 +386,7 @@ func (r *queryResolver) Files(ctx context.Context, filters *backend.FileFiltersI
 		if filters.MimeType != nil && *filters.MimeType != "" {
 			argCount++
 			conditions = append(conditions, fmt.Sprintf("fc.mime_type LIKE $%d", argCount))
-			args = append(args, *filters.MimeType + "%")
+			args = append(args, *filters.MimeType+"%")
 		}
 
 		if filters.SizeMin != nil {
@@ -537,7 +482,43 @@ func (r *queryResolver) PublicFile(ctx context.Context, id uuid.UUID) (*models.U
 
 // DownloadFile is the resolver for the downloadFile field.
 func (r *queryResolver) DownloadFile(ctx context.Context, id uuid.UUID) (string, error) {
-	panic("not implemented DownloadFile")
+	userID, err := auth.RequireAuth(ctx)
+	if err != nil {
+		return "", fmt.Errorf("authentication required")
+	}
+
+	// Get file information and verify ownership
+	var fileContentID uuid.UUID
+	var filename string
+	var userFileID uuid.UUID
+	var ownerID uuid.UUID
+	query := `
+		SELECT uf.file_content_id, uf.filename, uf.id, uf.user_id
+		FROM user_files uf
+		WHERE uf.id = $1 AND (uf.user_id = $2 OR uf.is_public = true)
+	`
+	err = r.DB.QueryRow(query, id, userID).Scan(&fileContentID, &filename, &userFileID, &ownerID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", fmt.Errorf("file not found or access denied")
+		}
+		return "", fmt.Errorf("failed to query file: %w", err)
+	}
+
+	// dowload link will remain valid for 1 hour
+	var downloadID uuid.UUID
+	query = `INSERT INTO file_downloads (user_id, owner_id, user_file_id, file_name, file_content_id, expires_at) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`
+	err = r.DB.QueryRow(query, userID, ownerID, userFileID, filename, fileContentID, time.Now().Add(time.Hour)).Scan(&downloadID)
+	if err != nil {
+		return "", fmt.Errorf("failed to insert file download: %w", err)
+	}
+
+	// download URL will include userID whom the file issued for download for verification
+	// we extract userID from token and compare it with the userID from the URI when downlading file
+	// Return the download URL
+	// download URL from a http handler
+	downloadURL := fmt.Sprintf("/api/files/%s/download/%s", downloadID.String(), userID)
+	return downloadURL, nil
 }
 
 // Folders is the resolver for the folders field.

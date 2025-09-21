@@ -19,16 +19,10 @@ import (
 	"github.com/99designs/gqlgen/graphql/handler"
 	"github.com/99designs/gqlgen/graphql/handler/transport"
 	"github.com/99designs/gqlgen/graphql/playground"
+	"github.com/google/uuid"
 
 	"github.com/gorilla/websocket"
 )
-
-func chainHandlers(mux http.Handler, handlers ...func(http.Handler) http.Handler) http.Handler {
-	for _, handler := range handlers {
-		mux = handler(mux)
-	}
-	return mux
-}
 
 func main() {
 	cfg := config.Load()
@@ -38,6 +32,8 @@ func main() {
 		log.Fatal("Failed::Initialize Database: ", err)
 	}
 	defer db.Close()
+	cleanupService := services.NewCleanUpService(db) // to clean up expired downloads
+	go cleanupService.CleanupExpiredDownloads()
 
 	if err := database.RunMigrations(db); err != nil {
 		log.Fatal("Failed::Run Migrations", err)
@@ -119,6 +115,49 @@ func main() {
 		playgroundHandler := corsHandler(playground.Handler("GraphQL Playground", "/graphql"))
 		mux.Handle("/playground", playgroundHandler)
 	}
+
+	fileDownloadHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Println("file download handler request")
+		downloadID := r.PathValue("downloadID")
+		userID := r.PathValue("userID")
+
+		var fileContentID uuid.UUID
+		var fileName string
+		var userFileID uuid.UUID
+		var ownerID uuid.UUID
+		query := `SELECT user_file_id, file_name, file_content_id, owner_id FROM file_downloads WHERE id = $1 AND user_id = $2`
+		err := db.QueryRow(query, downloadID, userID).Scan(&userFileID, &fileName, &fileContentID, &ownerID)
+		if err != nil {
+			http.Error(w, "File not found", http.StatusNotFound)
+			return
+		}
+
+		var mimeType string
+		var filePath string
+		query = `SELECT mime_type, file_path FROM file_contents WHERE id = $1`
+		err = db.QueryRow(query, fileContentID).Scan(&mimeType, &filePath)
+		if err != nil {
+			http.Error(w, "File not found", http.StatusNotFound)
+			return
+		}
+
+		if err := fileService.DownloadFile(&w, filePath, fileName, mimeType); err != nil {
+			http.Error(w, "File not found", http.StatusNotFound)
+			return
+		} else if ownerID.String() != userID {
+			// download count is incremented when someone else downloads your file
+			query = `UPDATE user_files SET download_count = download_count + 1 WHERE id = $1`
+			_, err = db.Exec(query, userFileID)
+			if err != nil {
+				fmt.Printf("Failed to update download count")
+				return
+			}
+		}
+	})
+
+	fileHandler := corsHandler(rate_limiter.Middleware(auth.Middleware(fileDownloadHandler, cfg.JWTSecret), rateLimiter))
+
+	mux.Handle("/api/files/{downloadID}/download/{userID}", fileHandler)
 
 	server := &http.Server{
 		Addr:           cfg.Host + ":" + cfg.Port,
