@@ -1,0 +1,37 @@
+# Development override file
+# This file is automatically loaded by docker-compose for development
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    environment:
+      GO_ENV: development
+      STORAGE_PATH: ./storage/
+    volumes:
+      # Mount source code for hot reloading during development
+      - ./backend:/app
+      - ./storage:/app/storage  # Mount storage directory
+    command: sh -c "go run ./cmd/server"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    environment:
+      NODE_ENV: development
+    volumes:
+      # Mount source code for hot reloading during development
+      - ./frontend:/app
+      - /app/node_modules  # Exclude node_modules from being overwritten
+    command: npm run dev
+
+  postgres:
+    ports:
+      - "5433:5432"  # Expose PostgreSQL port for external access
+
+  redis:
+    ports:
+      - "6380:6379"  # Expose Redis port for external access

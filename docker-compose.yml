@@ -1,0 +1,116 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: file-vault-postgres
+    environment:
+      POSTGRES_DB: file_vault
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: up32dp0799
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/migrations:/docker-entrypoint-initdb.d
+    ports:
+      - "5433:5432"
+    networks:
+      - file-vault-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: file-vault-redis
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - file-vault-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Go Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: file-vault-backend
+    environment:
+      # Server configuration
+      HOST: 0.0.0.0
+      PORT: 8080
+      
+      # Storage configuration
+      STORAGE_PATH: /app/storage
+      DEFAULT_STORAGE_QUOTA: 10
+      
+      # Database configuration
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: file_vault
+      DB_USER: postgres
+      DB_PASSWORD: up32dp0799
+      DB_SSL_MODE: disable
+      
+      # JWT configuration
+      JWT_SECRET: 4c70776d83bba901ed9ad4dc0b96a548
+      
+      # Rate limiting
+      API_RATE_LIMIT: 1000
+      API_BURST_LIMIT: 2000
+      USER_RATE_LIMIT: 10
+      USER_BURST_LIMIT: 20
+      USER_BLOCK_LIMIT: 100
+      USER_BLOCK_DURATION: 3600
+      
+      # Redis configuration
+      REDIS_URL: redis://redis:6379
+      
+      # Environment
+      GO_ENV: production
+    volumes:
+      - ./storage:/app/storage
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - file-vault-network
+    restart: unless-stopped
+
+  # Next.js Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: file-vault-frontend
+    environment:
+      NEXT_PUBLIC_GRAPHQL_URL: http://localhost:8080/graphql
+      NODE_ENV: production
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    networks:
+      - file-vault-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  file-vault-network:
+    driver: bridge

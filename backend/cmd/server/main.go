@@ -6,6 +6,7 @@ import (
 	"file-vault/internal/database"
 	"file-vault/internal/graph"
 	"file-vault/internal/graph/generated"
+	"file-vault/internal/rate_limiter"
 	"file-vault/internal/services"
 	"fmt"
 	"os"
@@ -42,16 +43,26 @@ func main() {
 		log.Fatal("Failed::Run Migrations", err)
 	}
 
+	redis := services.NewRedisClient(cfg.RedisURL)
+	defer redis.Close()
+	rlConfig := services.RlConfig{
+		GlobalRateLimit:   cfg.GlobalRateLimit,
+		GlobalBurstLimit:  cfg.GlobalBurstLimit,
+		UserRateLimit:     cfg.UserRateLimit,
+		UserBurstLimit:    cfg.UserBurstLimit,
+		UserBlockLimit:    cfg.UserBlockLimit,
+		UserBlockDuration: cfg.UserBlockDuration,
+	}
 	dedupService := services.NewDeduplicationService(db)
 	fileService := services.NewFileService(dedupService, cfg.StoragePath)
-	rateLimiter := services.RateLimiter{}
+	rateLimiter := services.NewRateLimiter(redis, rlConfig)
 	storageService := services.NewStorageService(db)
 
 	resolver := &graph.Resolver{
 		DB:             db,
 		FileService:    fileService,
 		DedupService:   dedupService,
-		RateLimiter:    &rateLimiter,
+		RateLimiter:    rateLimiter,
 		StorageService: storageService,
 		Config:         cfg,
 	}
@@ -101,7 +112,7 @@ func main() {
 		})
 	}
 
-	graphqlHandler := corsHandler(auth.Middleware(srv, cfg.JWTSecret))
+	graphqlHandler := corsHandler(rate_limiter.Middleware(auth.Middleware(srv, cfg.JWTSecret), rateLimiter))
 	mux.Handle("/graphql", graphqlHandler)
 
 	if os.Getenv("GO_ENV") != "production" {

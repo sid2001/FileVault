@@ -1,0 +1,17 @@
+# Development Dockerfile for Go backend
+FROM golang:1.25.1-alpine
+
+# Install git and ca-certificates
+RUN apk add --no-cache git ca-certificates
+
+# Set working directory
+WORKDIR /app
+
+# Create storage directory
+RUN mkdir -p /app/storage
+
+# Expose port
+EXPOSE 8080
+
+# Default command (will be overridden in docker-compose)
+CMD ["go", "run", "./cmd/server"]
