@@ -144,6 +144,11 @@ func (r *mutationResolver) DeleteFile(ctx context.Context, fileId uuid.UUID) (bo
 	if err != nil {
 		return false, fmt.Errorf("authentication required")
 	}
+
+	// Check if user is admin
+	userRole := auth.GetUserRoleFromContext(ctx)
+	isAdmin := userRole == "ADMIN"
+
 	// transaction
 	tx, err := r.DB.BeginTx(ctx, nil)
 	if err != nil {
@@ -151,11 +156,23 @@ func (r *mutationResolver) DeleteFile(ctx context.Context, fileId uuid.UUID) (bo
 	}
 	defer tx.Rollback()
 
-	// Verify file ownership
+	// Verify file ownership (admin can delete any file, regular users only their own)
 	var exists bool
 	var fileContentID uuid.UUID
-	query := `SELECT file_content_id FROM user_files WHERE id = $1 AND user_id = $2`
-	err = tx.QueryRow(query, fileId, userID).Scan(&fileContentID)
+	var query string
+	var args []interface{}
+
+	if isAdmin {
+		// Admin can delete any file
+		query = `SELECT file_content_id FROM user_files WHERE id = $1`
+		args = []interface{}{fileId}
+	} else {
+		// Regular users can only delete their own files
+		query = `SELECT file_content_id FROM user_files WHERE id = $1 AND user_id = $2`
+		args = []interface{}{fileId, userID}
+	}
+
+	err = tx.QueryRow(query, args...).Scan(&fileContentID)
 	exists = (err != sql.ErrNoRows)
 	if err != nil {
 		return false, err
@@ -417,7 +434,49 @@ func (r *queryResolver) Me(ctx context.Context) (*models.User, error) {
 
 // Users is the resolver for the users field.
 func (r *queryResolver) Users(ctx context.Context, limit *int, offset *int) ([]*models.User, error) {
-	panic("not implemented Users")
+	// Require admin authentication
+	_, err := auth.RequireAdmin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("admin authentication required: %w", err)
+	}
+
+	// Set default values
+	limitValue := 20
+	if limit != nil {
+		limitValue = *limit
+	}
+	offsetValue := 0
+	if offset != nil {
+		offsetValue = *offset
+	}
+
+	query := `
+		SELECT id, username, email, password_hash, role, storage_quota, created_at, updated_at 
+		FROM users 
+		ORDER BY created_at DESC 
+		LIMIT $1 OFFSET $2
+	`
+
+	rows, err := r.DB.Query(query, limitValue, offsetValue)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query users: %w", err)
+	}
+	defer rows.Close()
+
+	var users []*models.User
+	for rows.Next() {
+		var user models.User
+		err := rows.Scan(
+			&user.ID, &user.Username, &user.Email, &user.PasswordHash,
+			&user.Role, &user.StorageQuota, &user.CreatedAt, &user.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan user: %w", err)
+		}
+		users = append(users, &user)
+	}
+
+	return users, nil
 }
 
 // Files is the resolver for the files field.
@@ -469,6 +528,18 @@ func (r *queryResolver) Files(ctx context.Context, filters *backend.FileFiltersI
 			args = append(args, *filters.SizeMax)
 		}
 
+		if filters.DateFrom != nil {
+			argCount++
+			conditions = append(conditions, fmt.Sprintf("uf.created_at >= $%d", argCount))
+			args = append(args, *filters.DateFrom)
+		}
+
+		if filters.DateTo != nil {
+			argCount++
+			conditions = append(conditions, fmt.Sprintf("uf.created_at <= $%d", argCount))
+			args = append(args, *filters.DateTo)
+		}
+
 		if len(filters.Tags) > 0 {
 			argCount++
 			conditions = append(conditions, fmt.Sprintf("uf.tags && $%d", argCount))
@@ -509,6 +580,9 @@ func (r *queryResolver) Files(ctx context.Context, filters *backend.FileFiltersI
 	argCount++
 	baseQuery += fmt.Sprintf(" OFFSET $%d", argCount)
 	args = append(args, offsetValue)
+
+	fmt.Printf("Final SQL Query: %s\n", baseQuery)
+	fmt.Printf("Query Args: %v\n", args)
 
 	rows, err := r.DB.Query(baseQuery, args...)
 	if err != nil {
@@ -646,25 +720,71 @@ func (r *queryResolver) AuditLogs(ctx context.Context, limit *int, offset *int) 
 
 // AllFiles is the resolver for the allFiles field.
 func (r *queryResolver) AllFiles(ctx context.Context, limit *int, offset *int) ([]*models.UserFile, error) {
-	panic("not implemented AllFiles")
+	// Require admin authentication
+	_, err := auth.RequireAdmin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("admin authentication required: %w", err)
+	}
+
+	// Set default values
+	limitValue := 50
+	if limit != nil {
+		limitValue = *limit
+	}
+	offsetValue := 0
+	if offset != nil {
+		offsetValue = *offset
+	}
+
+	query := `
+		SELECT uf.id, uf.user_id, uf.file_content_id, uf.filename, uf.folder_id,
+			   uf.is_public, uf.download_count, uf.tags, uf.created_at, uf.updated_at
+		FROM user_files uf
+		ORDER BY uf.created_at DESC
+		LIMIT $1 OFFSET $2
+	`
+
+	rows, err := r.DB.Query(query, limitValue, offsetValue)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query all files: %w", err)
+	}
+	defer rows.Close()
+
+	var files []*models.UserFile
+	for rows.Next() {
+		var file models.UserFile
+		err := rows.Scan(
+			&file.ID, &file.UserID, &file.FileContentID, &file.Filename,
+			&file.FolderID, &file.IsPublic, &file.DownloadCount,
+			pq.Array(&file.Tags), &file.CreatedAt, &file.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan file: %w", err)
+		}
+
+		graphqlFile, err := r.loadUserFileWithRelations(file.ID.String())
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, graphqlFile)
+	}
+
+	return files, nil
 }
 
 // TotalUsed is the resolver for the totalUsed field.
 func (r *storageStatsResolver) TotalUsed(ctx context.Context, obj *models.StorageStats) (int, error) {
 	return int(obj.TotalUsed), nil
-	panic("not implemented totalUsed")
 }
 
 // OriginalSize is the resolver for the originalSize field.
 func (r *storageStatsResolver) OriginalSize(ctx context.Context, obj *models.StorageStats) (int, error) {
 	return int(obj.OriginalSize), nil
-	panic("not implemented originalSize")
 }
 
 // SavedBytes is the resolver for the savedBytes field.
 func (r *storageStatsResolver) SavedBytes(ctx context.Context, obj *models.StorageStats) (int, error) {
 	return int(obj.SavedBytes), nil
-	panic("not implemented savedBytes")
 }
 
 // FileUploaded is the resolver for the fileUploaded field.
@@ -696,7 +816,6 @@ func (r *userResolver) Folders(ctx context.Context, obj *models.User) ([]*models
 // ShareURL is the resolver for the shareURL field.
 func (r *userFileResolver) ShareURL(ctx context.Context, obj *models.UserFile) (*string, error) {
 	return &obj.ShareURL, nil
-	panic("not implemented shareURL")
 }
 
 // FileContent returns generated.FileContentResolver implementation.

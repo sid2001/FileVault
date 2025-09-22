@@ -15,6 +15,7 @@ import {
   ShieldCheckIcon,
   BellIcon,
   TrashIcon,
+  InformationCircleIcon,
 } from '@heroicons/react/24/outline'
 import toast from 'react-hot-toast'
 
@@ -125,6 +126,38 @@ export default function SettingsPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
           <p className="text-gray-600">Manage your account settings and preferences</p>
+        </div>
+
+        {/* Feature Status Info */}
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <div className="flex">
+            <div className="flex-shrink-0">
+              <InformationCircleIcon className="h-5 w-5 text-blue-400" />
+            </div>
+            <div className="ml-3">
+              <h3 className="text-sm font-medium text-blue-800">Feature Implementation Status</h3>
+              <div className="mt-2 text-sm text-blue-700">
+                <p className="mb-2">Here's what's currently available in your settings:</p>
+                <ul className="space-y-1">
+                  <li className="flex items-center">
+                    <span className="inline-block w-2 h-2 bg-red-400 rounded-full mr-2"></span>
+                    <span><strong>Password Change:</strong> Not implemented yet (UI only)</span>
+                  </li>
+                  <li className="flex items-center">
+                    <span className="inline-block w-2 h-2 bg-red-400 rounded-full mr-2"></span>
+                    <span><strong>Notifications:</strong> Not implemented yet (UI only)</span>
+                  </li>
+                  <li className="flex items-center">
+                    <span className="inline-block w-2 h-2 bg-green-400 rounded-full mr-2"></span>
+                    <span><strong>Account Deletion:</strong> Fully functional and working</span>
+                  </li>
+                </ul>
+                <p className="mt-2 text-xs text-blue-600">
+                  Password change and notification features are planned for future updates.
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Account Information */}

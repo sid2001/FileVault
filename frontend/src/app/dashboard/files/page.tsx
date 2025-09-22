@@ -167,8 +167,6 @@ export default function FilesPage() {
     sizeMax: '',
     dateFrom: '',
     dateTo: '',
-    tags: [] as string[],
-    isPublic: null as boolean | null,
   })
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
@@ -187,7 +185,7 @@ export default function FilesPage() {
     return () => clearTimeout(timer)
   }, [searchTerm])
 
-  // Reset pagination when filters change
+  // Reset pagination when search term, filters, or folder changes
   useEffect(() => {
     setCurrentPage(1)
   }, [debouncedSearchTerm, filters, selectedFolder])
@@ -198,14 +196,31 @@ export default function FilesPage() {
     
     if (debouncedSearchTerm) filterObj.search = debouncedSearchTerm
     if (filters.mimeType) filterObj.mimeType = filters.mimeType
-    if (filters.sizeMin) filterObj.sizeMin = parseInt(filters.sizeMin) * 1024 * 1024
-    if (filters.sizeMax) filterObj.sizeMax = parseInt(filters.sizeMax) * 1024 * 1024
-    if (filters.dateFrom) filterObj.dateFrom = filters.dateFrom
-    if (filters.dateTo) filterObj.dateTo = filters.dateTo
-    if (filters.tags.length > 0) filterObj.tags = filters.tags
-    if (filters.isPublic !== null) filterObj.isPublic = filters.isPublic
+    if (filters.sizeMin && filters.sizeMin !== '') {
+      const sizeMinBytes = parseInt(filters.sizeMin) * 1024 * 1024
+      if (!isNaN(sizeMinBytes)) {
+        filterObj.sizeMin = sizeMinBytes
+      }
+    }
+    if (filters.sizeMax && filters.sizeMax !== '') {
+      const sizeMaxBytes = parseInt(filters.sizeMax) * 1024 * 1024
+      if (!isNaN(sizeMaxBytes)) {
+        filterObj.sizeMax = sizeMaxBytes
+      }
+    }
+    if (filters.dateFrom) {
+      // Convert date string to ISO string for proper parsing
+      const dateFrom = new Date(filters.dateFrom + 'T00:00:00.000Z')
+      filterObj.dateFrom = dateFrom.toISOString()
+    }
+    if (filters.dateTo) {
+      // Convert date string to end of day ISO string for proper parsing
+      const dateTo = new Date(filters.dateTo + 'T23:59:59.999Z')
+      filterObj.dateTo = dateTo.toISOString()
+    }
     if (selectedFolder) filterObj.folderId = selectedFolder
     
+    console.log('Frontend filters being sent:', filterObj)
     return Object.keys(filterObj).length > 0 ? filterObj : undefined
   }
 
@@ -583,8 +598,6 @@ export default function FilesPage() {
       sizeMax: '',
       dateFrom: '',
       dateTo: '',
-      tags: [],
-      isPublic: null,
     })
     setSearchTerm('')
     setSelectedFolder(null)
@@ -597,8 +610,6 @@ export default function FilesPage() {
            filters.sizeMax || 
            filters.dateFrom || 
            filters.dateTo || 
-           filters.tags.length > 0 || 
-           filters.isPublic !== null ||
            selectedFolder
   }
 
@@ -744,42 +755,6 @@ export default function FilesPage() {
                     type="date"
                     value={filters.dateTo}
                     onChange={(e) => handleFilterChange('dateTo', e.target.value)}
-                    className="block w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
-                  />
-                </div>
-
-                {/* Public/Private Filter */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Visibility
-                  </label>
-                  <select
-                    value={filters.isPublic === null ? '' : filters.isPublic.toString()}
-                    onChange={(e) => {
-                      const value = e.target.value === '' ? null : e.target.value === 'true'
-                      handleFilterChange('isPublic', value)
-                    }}
-                    className="block w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
-                  >
-                    <option value="">All Files</option>
-                    <option value="true">Public Only</option>
-                    <option value="false">Private Only</option>
-                  </select>
-                </div>
-
-                {/* Tags Filter */}
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Tags (comma-separated)
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="tag1, tag2, tag3"
-                    value={filters.tags.join(', ')}
-                    onChange={(e) => {
-                      const tags = e.target.value.split(',').map(tag => tag.trim()).filter(tag => tag)
-                      handleFilterChange('tags', tags)
-                    }}
                     className="block w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
                   />
                 </div>

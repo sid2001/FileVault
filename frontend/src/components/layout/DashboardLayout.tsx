@@ -14,26 +14,30 @@ import {
   Bars3Icon,
   XMarkIcon,
   ArrowRightOnRectangleIcon,
+  ShieldCheckIcon,
 } from '@heroicons/react/24/outline'
 
 interface DashboardLayoutProps {
   children: React.ReactNode
 }
 
-const navigation = [
+const getNavigation = (isAdmin: boolean) => [
   { name: 'Dashboard', href: '/dashboard', icon: HomeIcon },
   { name: 'Files', href: '/dashboard/files', icon: DocumentIcon },
   { name: 'Folders', href: '/dashboard/folders', icon: FolderIcon },
   { name: 'Shared', href: '/dashboard/shared', icon: ShareIcon },
+  ...(isAdmin ? [{ name: 'Admin', href: '/dashboard/admin', icon: ShieldCheckIcon }] : []),
   { name: 'Settings', href: '/dashboard/settings', icon: CogIcon },
 ]
 
 export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
-  const { user, storageStats, logout } = useAuth()
+  const { user, storageStats, logout, isAdmin } = useAuth()
   const router = useRouter()
   const pathname = usePathname()
+  
+  const navigation = getNavigation(isAdmin)
 
   const handleLogout = () => {
     logout()
