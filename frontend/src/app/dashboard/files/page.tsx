@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { FileValidationResult } from '@/lib/fileValidation'
 
 // Force dynamic rendering
@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { FileUpload } from '@/components/ui/FileUpload'
 import { Card, CardContent, CardHeader } from '@/components/ui/Card'
+import { FilePreview } from '@/components/ui/FilePreview'
 import {
   DocumentIcon,
   FolderIcon,
@@ -146,6 +147,9 @@ export default function FilesPage() {
   const [showFilters, setShowFilters] = useState(false)
   const [isFileDetailsModalOpen, setIsFileDetailsModalOpen] = useState(false)
   const [selectedFileForDetails, setSelectedFileForDetails] = useState<any>(null)
+  const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false)
+  const [selectedFileForPreview, setSelectedFileForPreview] = useState<any>(null)
+  const [previewDownloadUrl, setPreviewDownloadUrl] = useState<string | null>(null)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [selectedFileForEdit, setSelectedFileForEdit] = useState<any>(null)
   const [editForm, setEditForm] = useState({
@@ -178,7 +182,9 @@ export default function FilesPage() {
 
   // Debounce search term
   useEffect(() => {
+    console.log('Search term changed:', searchTerm)
     const timer = setTimeout(() => {
+      console.log('Setting debounced search term:', searchTerm)
       setDebouncedSearchTerm(searchTerm)
     }, 300)
 
@@ -194,7 +200,12 @@ export default function FilesPage() {
   const buildFilters = () => {
     const filterObj: any = {}
     
-    if (debouncedSearchTerm) filterObj.search = debouncedSearchTerm
+    console.log('Building filters with:', { debouncedSearchTerm, filters, selectedFolder })
+    
+    if (debouncedSearchTerm) {
+      console.log('Adding search term to filters:', debouncedSearchTerm)
+      filterObj.search = debouncedSearchTerm
+    }
     if (filters.mimeType) filterObj.mimeType = filters.mimeType
     if (filters.sizeMin && filters.sizeMin !== '') {
       const sizeMinBytes = parseInt(filters.sizeMin) * 1024 * 1024
@@ -220,13 +231,17 @@ export default function FilesPage() {
     }
     if (selectedFolder) filterObj.folderId = selectedFolder
     
-    console.log('Frontend filters being sent:', filterObj)
+    console.log('Final filters being sent:', filterObj)
     return Object.keys(filterObj).length > 0 ? filterObj : undefined
   }
 
+
+  // Memoize filters to ensure reactivity
+  const memoizedFilters = useMemo(() => buildFilters(), [debouncedSearchTerm, filters, selectedFolder])
+
   const { data, loading: filesLoading, refetch } = useQuery(FILES_QUERY, {
     variables: {
-      filters: buildFilters(),
+      filters: memoizedFilters,
       limit: ITEMS_PER_PAGE,
       offset: (currentPage - 1) * ITEMS_PER_PAGE,
     },
@@ -575,6 +590,37 @@ export default function FilesPage() {
     setIsFileDetailsModalOpen(true)
   }
 
+  const handlePreviewFile = async (file: any) => {
+    try {
+      console.log('Starting preview for file:', file)
+      setSelectedFileForPreview(file)
+      setIsPreviewModalOpen(true)
+      
+      // Reset download URL first
+      setPreviewDownloadUrl(null)
+      
+      // Get download URL for preview
+      console.log('Fetching download URL for file ID:', file.id)
+      const { data, error } = await getDownloadUrl({
+        variables: { fileId: file.id }
+      })
+      
+      console.log('Download URL response:', data)
+      console.log('Download URL error:', error)
+      
+      if (data?.downloadFile) {
+        console.log('Setting download URL:', data.downloadFile)
+        setPreviewDownloadUrl(data.downloadFile)
+      } else {
+        console.error('No download URL received')
+        toast.error('Failed to get download URL')
+      }
+    } catch (error) {
+      console.error('Error getting download URL:', error)
+      toast.error('Failed to load file preview')
+    }
+  }
+
   const handleCloseFileDetailsModal = () => {
     setIsFileDetailsModalOpen(false)
     setSelectedFileForDetails(null)
@@ -798,11 +844,18 @@ export default function FilesPage() {
                     <DocumentIcon className="h-8 w-8 text-gray-400" />
                     <div className="flex space-x-1">
                       <button
+                        onClick={() => handlePreviewFile(file)}
+                        className="p-1 text-gray-400 hover:text-purple-600"
+                        title="Preview File"
+                      >
+                        <EyeIcon className="h-4 w-4" />
+                      </button>
+                      <button
                         onClick={() => handleViewFileDetails(file)}
                         className="p-1 text-gray-400 hover:text-blue-600"
                         title="View Details"
                       >
-                        <EyeIcon className="h-4 w-4" />
+                        <InformationCircleIcon className="h-4 w-4" />
                       </button>
                       <button
                         onClick={() => handleEditFile(file)}
@@ -1596,6 +1649,18 @@ export default function FilesPage() {
             </div>
           )}
         </Modal>
+
+        {/* File Preview Modal */}
+        <FilePreview
+          isOpen={isPreviewModalOpen}
+          onClose={() => {
+            setIsPreviewModalOpen(false)
+            setSelectedFileForPreview(null)
+            setPreviewDownloadUrl(null)
+          }}
+          file={selectedFileForPreview}
+          downloadUrl={previewDownloadUrl || undefined}
+        />
       </div>
     </DashboardLayout>
   )

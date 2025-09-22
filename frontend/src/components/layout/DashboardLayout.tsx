@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
@@ -32,7 +32,6 @@ const getNavigation = (isAdmin: boolean) => [
 
 export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [searchTerm, setSearchTerm] = useState('')
   const { user, storageStats, logout, isAdmin } = useAuth()
   const router = useRouter()
   const pathname = usePathname()
@@ -42,14 +41,6 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const handleLogout = () => {
     logout()
     router.push('/login')
-  }
-
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (searchTerm.trim()) {
-      // Navigate to files page with search query
-      router.push(`/dashboard/files?search=${encodeURIComponent(searchTerm.trim())}`)
-    }
   }
 
   // Calculate storage usage percentage
@@ -78,13 +69,6 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   }
 
   const storageUsage = getStorageUsage()
-
-  // Clear search term when navigating away from files page
-  useEffect(() => {
-    if (pathname !== '/dashboard/files') {
-      setSearchTerm('')
-    }
-  }, [pathname])
 
   return (
     <div className="h-screen flex overflow-hidden bg-gray-100">
@@ -206,55 +190,84 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       {/* Main content */}
       <div className="flex flex-col w-0 flex-1 overflow-hidden">
         {/* Top bar */}
-        <div className="relative z-10 flex-shrink-0 flex h-16 bg-white shadow">
+        <div className="relative z-10 flex-shrink-0 flex h-16 bg-gradient-to-r from-white via-gray-50 to-primary-50 shadow-lg border-b border-gray-200 overflow-hidden">
+          {/* Background texture pattern */}
+          <div className="absolute inset-0 opacity-5">
+            <div className="absolute inset-0" style={{
+              backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23000000' fill-opacity='0.1'%3E%3Ccircle cx='30' cy='30' r='2'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
+            }} />
+          </div>
+          
+          {/* Subtle animated gradient overlay */}
+          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-primary-100/20 to-transparent animate-pulse"></div>
+          
+          {/* Decorative elements */}
+          <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-primary-200/10 to-transparent rounded-full -translate-y-16 translate-x-16"></div>
+          <div className="absolute bottom-0 left-0 w-24 h-24 bg-gradient-to-tr from-primary-300/10 to-transparent rounded-full translate-y-12 -translate-x-12"></div>
+          
           <button
             type="button"
-            className="px-4 border-r border-gray-200 text-gray-500 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-primary-500 md:hidden"
+            className="relative px-4 border-r border-gray-200 text-gray-500 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-primary-500 md:hidden hover:bg-gray-100 transition-colors"
             onClick={() => setSidebarOpen(true)}
           >
             <Bars3Icon className="h-6 w-6" />
           </button>
-          <div className="flex-1 px-4 flex justify-between">
-            <div className="flex-1 flex">
-              <div className="w-full flex md:ml-0">
-                <form onSubmit={handleSearch} className="relative w-full text-gray-400 focus-within:text-gray-600">
-                  <div className="absolute inset-y-0 left-0 flex items-center pointer-events-none">
-                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                    </svg>
-                  </div>
-                  <input
-                    className="block w-full h-full pl-8 pr-3 py-2 border-transparent text-gray-900 placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-0 focus:border-transparent sm:text-sm"
-                    placeholder="Search files..."
-                    type="search"
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                  />
-                </form>
+          <div className="flex-1 px-4 flex justify-between items-center">
+            {/* Left side - Brand/Title area */}
+            <div className="flex items-center">
+              <div className="flex items-center space-x-3">
+                {/* Logo/Icon */}
+                <div className="relative flex items-center justify-center w-10 h-10 bg-gradient-to-br from-primary-500 to-primary-600 rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-105">
+                  <div className="absolute inset-0 bg-gradient-to-br from-white/20 to-transparent rounded-xl"></div>
+                  <svg className="relative w-6 h-6 text-white drop-shadow-sm" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                  </svg>
+                </div>
+                <div className="hidden sm:block">
+                  <h1 className="text-xl font-bold text-gray-900 tracking-tight">FileVault</h1>
+                  <p className="text-xs text-gray-600 font-medium">Secure File Management</p>
+                </div>
               </div>
             </div>
-            <div className="ml-4 flex items-center md:ml-6">
+            
+            {/* Right side - User menu */}
+            <div className="ml-4 flex items-center md:ml-6 space-x-4">
               {/* Storage quota indicator */}
-              <div className="flex items-center space-x-2 text-sm text-gray-500">
-                <span>Storage:</span>
+              <div className="hidden lg:flex items-center space-x-3 px-4 py-2 bg-white/60 backdrop-blur-sm rounded-lg border border-gray-200/50 shadow-sm">
+                <div className="flex items-center space-x-2">
+                  <div className="w-2 h-2 bg-primary-500 rounded-full animate-pulse"></div>
+                  <span className="text-sm font-medium text-gray-700">Storage</span>
+                </div>
                 {storageStats ? (
                   <>
-                    <div className="w-20 bg-gray-200 rounded-full h-2">
+                    <div className="flex items-center space-x-2">
+                      <span className="text-sm font-semibold text-gray-900">
+                        {formatBytes(storageUsage.used)}
+                      </span>
+                      <span className="text-sm text-gray-500">/</span>
+                      <span className="text-sm text-gray-600">
+                        {formatBytes(storageUsage.total)}
+                      </span>
+                    </div>
+                    <div className="w-20 bg-gray-200 rounded-full h-2 shadow-inner">
                       <div 
-                        className={`h-2 rounded-full ${
-                          storageUsage.percentage > 90 
-                            ? 'bg-red-500' 
-                            : storageUsage.percentage > 75 
-                            ? 'bg-yellow-500' 
-                            : 'bg-primary-600'
+                        className={`h-2 rounded-full transition-all duration-500 ${
+                          storageUsage.percentage > 90 ? 'bg-gradient-to-r from-red-500 to-red-600' : 
+                          storageUsage.percentage > 75 ? 'bg-gradient-to-r from-yellow-500 to-yellow-600' : 
+                          'bg-gradient-to-r from-primary-500 to-primary-600'
                         }`}
                         style={{ width: `${storageUsage.percentage}%` }}
-                      ></div>
+                      />
                     </div>
-                    <span>{formatBytes(storageUsage.used)} / {formatBytes(storageUsage.total)}</span>
+                    <span className="text-xs font-medium text-gray-600 min-w-[3rem]">
+                      {storageUsage.percentage.toFixed(1)}%
+                    </span>
                   </>
                 ) : (
-                  <span className="text-gray-400">Loading...</span>
+                  <div className="flex items-center space-x-2">
+                    <div className="w-4 h-4 bg-gray-300 rounded animate-pulse"></div>
+                    <span className="text-sm text-gray-500">Loading...</span>
+                  </div>
                 )}
               </div>
             </div>

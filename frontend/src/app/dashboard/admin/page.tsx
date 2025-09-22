@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
-import { useQuery, useMutation } from '@apollo/client'
+import { useQuery, useMutation, useLazyQuery } from '@apollo/client'
 import { gql } from '@apollo/client'
 import { 
   UserIcon, 
@@ -20,6 +20,7 @@ import {
   ClockIcon
 } from '@heroicons/react/24/outline'
 import toast from 'react-hot-toast'
+import { FilePreview } from '@/components/ui/FilePreview'
 
 // GraphQL queries
 const ALL_FILES_QUERY = gql`
@@ -111,6 +112,12 @@ const AUDIT_LOGS_QUERY = gql`
   }
 `
 
+const DOWNLOAD_FILE_QUERY = gql`
+  query DownloadFile($fileId: ID!) {
+    downloadFile(id: $fileId)
+  }
+`
+
 interface UserFile {
   id: string
   filename: string
@@ -187,6 +194,9 @@ export default function AdminPage() {
   const [deletingFileId, setDeletingFileId] = useState<string | null>(null)
   const [selectedFile, setSelectedFile] = useState<UserFile | null>(null)
   const [isFileDetailsModalOpen, setIsFileDetailsModalOpen] = useState(false)
+  const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false)
+  const [selectedFileForPreview, setSelectedFileForPreview] = useState<UserFile | null>(null)
+  const [previewDownloadUrl, setPreviewDownloadUrl] = useState<string | null>(null)
   const [totalFiles, setTotalFiles] = useState(0)
   const [totalUsers, setTotalUsers] = useState(0)
   const itemsPerPage = 10
@@ -227,6 +237,8 @@ export default function AdminPage() {
       { query: STORAGE_STATS_QUERY }
     ],
   })
+
+  const [getDownloadUrl] = useLazyQuery(DOWNLOAD_FILE_QUERY)
 
   const formatBytes = (bytes: number) => {
     if (bytes === 0) return '0 Bytes'
@@ -272,6 +284,37 @@ export default function AdminPage() {
   const handleViewFileDetails = (file: UserFile) => {
     setSelectedFile(file)
     setIsFileDetailsModalOpen(true)
+  }
+
+  const handlePreviewFile = async (file: UserFile) => {
+    try {
+      console.log('Starting preview for file:', file)
+      setSelectedFileForPreview(file)
+      setIsPreviewModalOpen(true)
+      
+      // Reset download URL first
+      setPreviewDownloadUrl(null)
+      
+      // Get download URL for preview
+      console.log('Fetching download URL for file ID:', file.id)
+      const { data, error } = await getDownloadUrl({
+        variables: { fileId: file.id }
+      })
+      
+      console.log('Download URL response:', data)
+      console.log('Download URL error:', error)
+      
+      if (data?.downloadFile) {
+        console.log('Setting download URL:', data.downloadFile)
+        setPreviewDownloadUrl(data.downloadFile)
+      } else {
+        console.error('No download URL received')
+        toast.error('Failed to get download URL')
+      }
+    } catch (error) {
+      console.error('Error getting download URL:', error)
+      toast.error('Failed to load file preview')
+    }
   }
 
   const closeFileDetailsModal = () => {
@@ -527,8 +570,15 @@ export default function AdminPage() {
                                 </div>
                               </div>
                               <button
+                                onClick={() => handlePreviewFile(file)}
+                                className="ml-2 p-1 text-gray-400 hover:text-purple-600 focus:outline-none focus:ring-2 focus:ring-purple-500 rounded"
+                                title="Preview file"
+                              >
+                                <EyeIcon className="h-4 w-4" />
+                              </button>
+                              <button
                                 onClick={() => handleViewFileDetails(file)}
-                                className="ml-2 p-1 text-gray-400 hover:text-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 rounded"
+                                className="ml-1 p-1 text-gray-400 hover:text-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 rounded"
                                 title="View full details"
                               >
                                 <InformationCircleIcon className="h-4 w-4" />
@@ -1121,6 +1171,18 @@ export default function AdminPage() {
           </div>
         </div>
       )}
+
+      {/* File Preview Modal */}
+      <FilePreview
+        isOpen={isPreviewModalOpen}
+        onClose={() => {
+          setIsPreviewModalOpen(false)
+          setSelectedFileForPreview(null)
+          setPreviewDownloadUrl(null)
+        }}
+        file={selectedFileForPreview}
+        downloadUrl={previewDownloadUrl || undefined}
+      />
     </div>
   )
 }

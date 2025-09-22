@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { EyeIcon, EyeSlashIcon } from '@heroicons/react/24/outline'
+import { EyeIcon, EyeSlashIcon, InformationCircleIcon } from '@heroicons/react/24/outline'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
@@ -24,6 +24,11 @@ export default function LoginPage() {
     if (success) {
       router.push('/dashboard')
     }
+  }
+
+  const fillAdminCredentials = () => {
+    setEmail('admin@filevault.com')
+    setPassword('123456')
   }
 
   return (
@@ -106,6 +111,40 @@ export default function LoginPage() {
             </button>
           </div>
         </form>
+
+        {/* Admin Account Info */}
+        <div className="mt-8 bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <div className="flex">
+            <div className="flex-shrink-0">
+              <InformationCircleIcon className="h-5 w-5 text-blue-400" />
+            </div>
+            <div className="ml-3">
+              <h3 className="text-sm font-medium text-blue-800">Demo Admin Account</h3>
+              <div className="mt-2 text-sm text-blue-700">
+                <p className="mb-2">For testing and demonstration purposes, you can use the admin account:</p>
+                <div className="bg-blue-100 p-3 rounded-md">
+                  <p 
+                    className="cursor-pointer hover:bg-blue-200 transition-colors rounded px-2 py-1 -mx-2 -my-1"
+                    onClick={fillAdminCredentials}
+                    title="Click to fill in admin credentials"
+                  >
+                    <strong>Email:</strong> admin@filevault.com
+                  </p>
+                  <p 
+                    className="cursor-pointer hover:bg-blue-200 transition-colors rounded px-2 py-1 -mx-2 -my-1"
+                    onClick={fillAdminCredentials}
+                    title="Click to fill in admin credentials"
+                  >
+                    <strong>Password:</strong> 123456
+                  </p>
+                </div>
+                <p className="mt-2 text-xs text-blue-600">
+                  This account has full administrative privileges and can access all features including the admin dashboard.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   )
