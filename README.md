@@ -15,7 +15,7 @@ http://51.21.161.85:3000/register
 ```bash
 # Clone the repository
 git clone https://github.com/BalkanID-University/vit-2026-capstone-internship-hiring-task-sid2001.git
-cd file-vault
+cd vit-2026-capstone-internship-hiring-task-sid2001.git
 
 # Start with Docker Compose
 cp ./backend/env.example ./backend/.env
