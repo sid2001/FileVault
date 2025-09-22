@@ -153,6 +153,7 @@ export default function FilesPage() {
     tags: [] as string[],
     isPublic: false,
   })
+  const [isUploading, setIsUploading] = useState(false)
   const [filters, setFilters] = useState({
     mimeType: '',
     sizeMin: '',
@@ -311,6 +312,12 @@ export default function FilesPage() {
       return
     }
 
+    if (isUploading) {
+      toast.error('Upload already in progress. Please wait...')
+      return
+    }
+
+    setIsUploading(true)
     try {
       const { data } = await uploadFiles({
         variables: {
@@ -328,6 +335,8 @@ export default function FilesPage() {
     } catch (error: any) {
       console.error('Upload error:', error)
       toast.error(error.message || 'Upload failed')
+    } finally {
+      setIsUploading(false)
     }
   }
 
@@ -970,6 +979,7 @@ export default function FilesPage() {
                 maxFiles={10}
                 maxSize={50 * 1024 * 1024}
                 enableValidation={true}
+                disabled={isUploading}
               />
             ) : (
               <FileUpload
@@ -980,6 +990,7 @@ export default function FilesPage() {
                 appendMode={true}
                 existingFiles={selectedFiles}
                 enableValidation={true}
+                disabled={isUploading}
               />
             )}
             
@@ -991,14 +1002,24 @@ export default function FilesPage() {
                     {!showAddMoreFiles && selectedFiles.length < 10 && (
                       <button
                         onClick={handleAddMoreFiles}
-                        className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+                        disabled={isUploading}
+                        className={`text-xs font-medium ${
+                          isUploading 
+                            ? 'text-gray-400 cursor-not-allowed' 
+                            : 'text-blue-600 hover:text-blue-800'
+                        }`}
                       >
                         Add More
                       </button>
                     )}
                     <button
                       onClick={handleClearAllFiles}
-                      className="text-xs text-red-600 hover:text-red-800 font-medium"
+                      disabled={isUploading}
+                      className={`text-xs font-medium ${
+                        isUploading 
+                          ? 'text-gray-400 cursor-not-allowed' 
+                          : 'text-red-600 hover:text-red-800'
+                      }`}
                     >
                       Clear All
                     </button>
@@ -1047,14 +1068,24 @@ export default function FilesPage() {
               <Button
                 variant="outline"
                 onClick={handleCloseUploadModal}
+                disabled={isUploading}
+                className={isUploading ? 'opacity-50 cursor-not-allowed' : ''}
               >
-                Cancel
+                {isUploading ? 'Uploading...' : 'Cancel'}
               </Button>
               <Button
                 onClick={handleFileUpload}
-                disabled={selectedFiles.length === 0}
+                disabled={selectedFiles.length === 0 || isUploading}
+                className={isUploading ? 'opacity-50 cursor-not-allowed' : ''}
               >
-                Upload {selectedFiles.length} File(s)
+                {isUploading ? (
+                  <>
+                    <div className="loading-spinner mr-2"></div>
+                    Uploading...
+                  </>
+                ) : (
+                  `Upload ${selectedFiles.length} File(s)`
+                )}
               </Button>
             </div>
           </div>

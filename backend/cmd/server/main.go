@@ -93,9 +93,10 @@ func main() {
 
 	corsHandler := func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Access-Control-Allow-Origin", "http://localhost:3000")
-			w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			origin := r.Header.Get("Origin")
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
 			w.Header().Set("Access-Control-Allow-Credentials", "true")
 			w.Header().Set("Access-Control-Max-Age", "86400") // 24 hours
 
@@ -103,7 +104,7 @@ func main() {
 				w.WriteHeader(http.StatusOK)
 				return
 			}
-			fmt.Println("requrest incoming")
+			fmt.Println("request incoming from:", origin)
 			next.ServeHTTP(w, r)
 		})
 	}
@@ -128,6 +129,7 @@ func main() {
 		query := `SELECT user_file_id, file_name, file_content_id, owner_id FROM file_downloads WHERE id = $1 AND user_id = $2`
 		err := db.QueryRow(query, downloadID, userID).Scan(&userFileID, &fileName, &fileContentID, &ownerID)
 		if err != nil {
+			fmt.Printf("DownloadHandler: Failed to get download record: %v\n", err)
 			http.Error(w, "File not found", http.StatusNotFound)
 			return
 		}
@@ -137,11 +139,15 @@ func main() {
 		query = `SELECT mime_type, file_path FROM file_contents WHERE id = $1`
 		err = db.QueryRow(query, fileContentID).Scan(&mimeType, &filePath)
 		if err != nil {
+			fmt.Printf("DownloadHandler: Failed to get file content: %v\n", err)
 			http.Error(w, "File not found", http.StatusNotFound)
 			return
 		}
 
+		fmt.Printf("DownloadHandler: File path: %s, File name: %s, MIME type: %s\n", filePath, fileName, mimeType)
+
 		if err := fileService.DownloadFile(&w, filePath, fileName, mimeType); err != nil {
+			fmt.Printf("DownloadHandler: Failed to download file: %v\n", err)
 			http.Error(w, "File not found", http.StatusNotFound)
 			return
 		} else if ownerID.String() != userID {
