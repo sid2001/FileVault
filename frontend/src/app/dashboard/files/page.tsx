@@ -90,8 +90,8 @@ const DELETE_FILE_MUTATION = gql`
 `
 
 const SHARE_FILE_MUTATION = gql`
-  mutation ShareFile($fileID: ID!, $shareType: ShareType!, $userID: ID) {
-    shareFile(fileID: $fileID, shareType: $shareType, userID: $userID) {
+  mutation ShareFile($fileId: ID!, $shareType: ShareType!, $userId: ID) {
+    shareFile(fileId: $fileId, shareType: $shareType, userId: $userId) {
       id
       shareType
       createdAt
@@ -154,6 +154,13 @@ export default function FilesPage() {
     isPublic: false,
   })
   const [isUploading, setIsUploading] = useState(false)
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false)
+  const [selectedFileForShare, setSelectedFileForShare] = useState<any>(null)
+  const [shareType, setShareType] = useState<'PUBLIC' | 'PRIVATE' | 'USER_SPECIFIC'>('PUBLIC')
+  const [userSearchQuery, setUserSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<any[]>([])
+  const [selectedUser, setSelectedUser] = useState<any>(null)
+  const [isSearching, setIsSearching] = useState(false)
   const [filters, setFilters] = useState({
     mimeType: '',
     sizeMin: '',
@@ -357,15 +364,74 @@ export default function FilesPage() {
     }
   }
 
-  const handleShareFile = async (fileId: string) => {
+  const handleShareFile = (file: any) => {
+    setSelectedFileForShare(file)
+    setIsShareModalOpen(true)
+  }
+
+  const handleCloseShareModal = () => {
+    setIsShareModalOpen(false)
+    setSelectedFileForShare(null)
+    setShareType('PUBLIC')
+    setUserSearchQuery('')
+    setSearchResults([])
+    setSelectedUser(null)
+  }
+
+  const searchUsers = async (query: string) => {
+    if (query.length < 2) {
+      setSearchResults([])
+      return
+    }
+
+    setIsSearching(true)
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'}/api/users/search?username=${encodeURIComponent(query)}&limit=10&offset=0`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+        },
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        setSearchResults(data.users || [])
+      } else {
+        console.error('Failed to search users')
+        setSearchResults([])
+      }
+    } catch (error) {
+      console.error('Error searching users:', error)
+      setSearchResults([])
+    } finally {
+      setIsSearching(false)
+    }
+  }
+
+  const handleUserSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const query = e.target.value
+    setUserSearchQuery(query)
+    searchUsers(query)
+  }
+
+  const handleUserSelect = (user: any) => {
+    setSelectedUser(user)
+    setUserSearchQuery(user.username)
+    setSearchResults([])
+  }
+
+  const handleShareSubmit = async () => {
+    if (!selectedFileForShare) return
+
     try {
       await shareFile({
         variables: {
-          fileID: fileId,
-          shareType: 'PUBLIC',
+          fileId: selectedFileForShare.id,
+          shareType: shareType,
+          userId: shareType === 'USER_SPECIFIC' ? selectedUser?.id : null,
         },
       })
       toast.success('File shared successfully')
+      handleCloseShareModal()
       refetch()
     } catch (error: any) {
       console.error('Share error:', error)
@@ -778,7 +844,7 @@ export default function FilesPage() {
                         <CloudArrowDownIcon className="h-4 w-4" />
                       </button>
                       <button
-                        onClick={() => handleShareFile(file.id)}
+                        onClick={() => handleShareFile(file)}
                         className="p-1 text-gray-400 hover:text-gray-600"
                         title="Share"
                       >
@@ -1266,7 +1332,7 @@ export default function FilesPage() {
                 </Button>
                 <Button
                   variant="outline"
-                  onClick={() => handleShareFile(selectedFileForDetails.id)}
+                  onClick={() => handleShareFile(selectedFileForDetails)}
                 >
                   <ShareIcon className="h-4 w-4 mr-2" />
                   Share
@@ -1384,6 +1450,172 @@ export default function FilesPage() {
                 >
                   <PencilIcon className="h-4 w-4 mr-2" />
                   Update File
+                </Button>
+              </div>
+            </div>
+          )}
+        </Modal>
+
+        {/* Share File Modal */}
+        <Modal
+          isOpen={isShareModalOpen}
+          onClose={handleCloseShareModal}
+          title="Share File"
+          size="lg"
+        >
+          {selectedFileForShare && (
+            <div className="space-y-6">
+              {/* File Header */}
+              <div className="flex items-center space-x-4">
+                {(() => {
+                  const FileIcon = getFileIcon(selectedFileForShare.fileContent.mimeType)
+                  return <FileIcon className="h-12 w-12 text-gray-400 flex-shrink-0" />
+                })()}
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-lg font-medium text-gray-900 truncate">
+                    {selectedFileForShare.filename}
+                  </h3>
+                  <p className="text-sm text-gray-500">
+                    {getFileTypeCategory(selectedFileForShare.fileContent.mimeType)}
+                  </p>
+                </div>
+              </div>
+
+              {/* Share Options */}
+              <div className="space-y-4">
+                {/* Share Type Selection */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-3">
+                    Share Type
+                  </label>
+                  <div className="space-y-2">
+                    <label className="flex items-center">
+                      <input
+                        type="radio"
+                        name="shareType"
+                        value="PUBLIC"
+                        checked={shareType === 'PUBLIC'}
+                        onChange={(e) => setShareType(e.target.value as 'PUBLIC')}
+                        className="mr-2"
+                      />
+                      <span className="text-sm">Public - Anyone with the link can access</span>
+                    </label>
+                    <label className="flex items-center">
+                      <input
+                        type="radio"
+                        name="shareType"
+                        value="PRIVATE"
+                        checked={shareType === 'PRIVATE'}
+                        onChange={(e) => setShareType(e.target.value as 'PRIVATE')}
+                        className="mr-2"
+                      />
+                      <span className="text-sm">Private - Only you can access</span>
+                    </label>
+                    <label className="flex items-center">
+                      <input
+                        type="radio"
+                        name="shareType"
+                        value="USER_SPECIFIC"
+                        checked={shareType === 'USER_SPECIFIC'}
+                        onChange={(e) => setShareType(e.target.value as 'USER_SPECIFIC')}
+                        className="mr-2"
+                      />
+                      <span className="text-sm">User Specific - Share with specific users</span>
+                    </label>
+                  </div>
+                </div>
+
+                {/* User Search (only show for USER_SPECIFIC) */}
+                {shareType === 'USER_SPECIFIC' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Search Users
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={userSearchQuery}
+                        onChange={handleUserSearchChange}
+                        className="block w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
+                        placeholder="Type username to search..."
+                      />
+                      {isSearching && (
+                        <div className="absolute right-3 top-2.5">
+                          <div className="loading-spinner"></div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Search Results */}
+                    {searchResults.length > 0 && (
+                      <div className="mt-2 max-h-40 overflow-y-auto border border-gray-200 rounded-md">
+                        {searchResults.map((user) => (
+                          <div
+                            key={user.id}
+                            onClick={() => handleUserSelect(user)}
+                            className="px-3 py-2 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-b-0"
+                          >
+                            <div className="flex items-center space-x-2">
+                              <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center">
+                                <span className="text-sm font-medium text-gray-600">
+                                  {user.username.charAt(0).toUpperCase()}
+                                </span>
+                              </div>
+                              <div>
+                                <p className="text-sm font-medium text-gray-900">{user.username}</p>
+                                <p className="text-xs text-gray-500">{user.email}</p>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Selected User */}
+                    {selectedUser && (
+                      <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-md">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-2">
+                            <div className="w-8 h-8 bg-blue-200 rounded-full flex items-center justify-center">
+                              <span className="text-sm font-medium text-blue-600">
+                                {selectedUser.username.charAt(0).toUpperCase()}
+                              </span>
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium text-blue-900">{selectedUser.username}</p>
+                              <p className="text-xs text-blue-600">{selectedUser.email}</p>
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => {
+                              setSelectedUser(null)
+                              setUserSearchQuery('')
+                            }}
+                            className="text-blue-600 hover:text-blue-800"
+                          >
+                            <TrashIcon className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Actions */}
+              <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200">
+                <Button
+                  variant="outline"
+                  onClick={handleCloseShareModal}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleShareSubmit}
+                  disabled={shareType === 'USER_SPECIFIC' && !selectedUser}
+                >
+                  <ShareIcon className="h-4 w-4 mr-2" />
+                  Share File
                 </Button>
               </div>
             </div>

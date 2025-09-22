@@ -313,7 +313,7 @@ func (r *mutationResolver) UpdateFolder(ctx context.Context, folderID uuid.UUID,
 }
 
 // ShareFile is the resolver for the shareFile field.
-func (r *mutationResolver) ShareFile(ctx context.Context, fileID uuid.UUID, shareType models.ShareType, userID *uuid.UUID) (*models.FileShare, error) {
+func (r *mutationResolver) ShareFile(ctx context.Context, fileId uuid.UUID, shareType models.ShareType, userId *uuid.UUID) (*models.FileShare, error) {
 	// panic("not implemented shareFile")
 	currentUserID, err := auth.RequireAuth(ctx)
 	if err != nil {
@@ -323,7 +323,7 @@ func (r *mutationResolver) ShareFile(ctx context.Context, fileID uuid.UUID, shar
 	// Verify file ownership
 	var count int
 	err = r.DB.QueryRow("SELECT COUNT(*) FROM user_files WHERE id = $1 AND user_id = $2",
-		fileID, currentUserID).Scan(&count)
+		fileId, currentUserID).Scan(&count)
 	if err != nil {
 		return nil, fmt.Errorf("database error: %w", err)
 	}
@@ -334,13 +334,13 @@ func (r *mutationResolver) ShareFile(ctx context.Context, fileID uuid.UUID, shar
 	// Create file share
 	share := &models.FileShare{
 		ID:        uuid.New(),
-		FileID:    fileID,
+		FileID:    fileId,
 		ShareType: models.ShareType(shareType),
 		CreatedAt: time.Now(),
 	}
 
-	if userID != nil {
-		sharedWithUserID := *userID
+	if userId != nil {
+		sharedWithUserID := *userId
 		share.SharedWithUserID = &sharedWithUserID
 	}
 
@@ -356,7 +356,7 @@ func (r *mutationResolver) ShareFile(ctx context.Context, fileID uuid.UUID, shar
 
 	// Update file visibility if public
 	if shareType == models.ShareTypePublic {
-		_, err = r.DB.Exec("UPDATE user_files SET is_public = true WHERE id = $1", fileID)
+		_, err = r.DB.Exec("UPDATE user_files SET is_public = true WHERE id = $1", fileId)
 		if err != nil {
 			return nil, fmt.Errorf("failed to update file visibility: %w", err)
 		}
@@ -377,7 +377,20 @@ func (r *mutationResolver) UpdateUserQuota(ctx context.Context, userID uuid.UUID
 
 // DeleteUser is the resolver for the deleteUser field.
 func (r *mutationResolver) DeleteUser(ctx context.Context, userID uuid.UUID) (bool, error) {
-	panic("not implemented deleteUser")
+	userId, err := auth.RequireAuth(ctx)
+	if err != nil {
+		return false, fmt.Errorf("authentication required")
+	}
+	if userId != userID.String() {
+		return false, fmt.Errorf("unauthorized")
+	}
+
+	query := `DELETE FROM users WHERE id = $1`
+	_, err = r.DB.Exec(query, userID)
+	if err != nil {
+		return false, fmt.Errorf("failed to delete user: %w", err)
+	}
+	return true, nil
 }
 
 // Me is the resolver for the me field.

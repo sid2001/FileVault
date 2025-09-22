@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useRouter } from 'next/navigation'
+import { useMutation } from '@apollo/client'
+import { gql } from '@apollo/client'
 import DashboardLayout from '@/components/layout/DashboardLayout'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -16,15 +18,24 @@ import {
 } from '@heroicons/react/24/outline'
 import toast from 'react-hot-toast'
 
+const DELETE_USER_MUTATION = gql`
+  mutation DeleteUser($userId: ID!) {
+    deleteUser(userId: $userId)
+  }
+`
+
 export default function SettingsPage() {
   const { user, logout } = useAuth()
   const router = useRouter()
   const [isChangingPassword, setIsChangingPassword] = useState(false)
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false)
   const [passwordData, setPasswordData] = useState({
     currentPassword: '',
     newPassword: '',
     confirmPassword: '',
   })
+
+  const [deleteUser] = useMutation(DELETE_USER_MUTATION)
 
   useEffect(() => {
     if (!user) {
@@ -64,7 +75,9 @@ export default function SettingsPage() {
     setIsChangingPassword(false)
   }
 
-  const handleDeleteAccount = () => {
+  const handleDeleteAccount = async () => {
+    if (!user) return
+
     if (!confirm('Are you sure you want to delete your account? This action cannot be undone.')) {
       return
     }
@@ -73,11 +86,36 @@ export default function SettingsPage() {
       return
     }
 
-    // Here you would typically make an API call to delete the account
-    toast.success('Account deletion requested. You will be logged out shortly.')
-    setTimeout(() => {
-      logout()
-    }, 2000)
+    // Final confirmation with typing requirement
+    const confirmationText = 'DELETE MY ACCOUNT'
+    const userInput = prompt(`To confirm account deletion, please type "${confirmationText}" exactly:`)
+    
+    if (userInput !== confirmationText) {
+      toast.error('Account deletion cancelled. Confirmation text did not match.')
+      return
+    }
+
+    setIsDeletingAccount(true)
+
+    try {
+      await deleteUser({
+        variables: {
+          userId: user.id,
+        },
+      })
+
+      toast.success('Account deleted successfully. You will be logged out shortly.')
+      
+      // Clear any stored data and logout
+      setTimeout(() => {
+        logout()
+        router.push('/login')
+      }, 2000)
+    } catch (error: any) {
+      console.error('Delete account error:', error)
+      toast.error(error.message || 'Failed to delete account. Please try again.')
+      setIsDeletingAccount(false)
+    }
   }
 
   return (
@@ -238,21 +276,35 @@ export default function SettingsPage() {
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h4 className="text-sm font-medium text-gray-900">Delete Account</h4>
-                <p className="text-sm text-gray-500">
-                  Permanently delete your account and all associated data
-                </p>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="text-sm font-medium text-gray-900">Delete Account</h4>
+                  <p className="text-sm text-gray-500">
+                    Permanently delete your account and all associated data
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  onClick={handleDeleteAccount}
+                  disabled={isDeletingAccount}
+                  className="border-red-300 text-red-700 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <TrashIcon className="h-4 w-4 mr-2" />
+                  {isDeletingAccount ? 'Deleting Account...' : 'Delete Account'}
+                </Button>
               </div>
-              <Button
-                variant="outline"
-                onClick={handleDeleteAccount}
-                className="border-red-300 text-red-700 hover:bg-red-50"
-              >
-                <TrashIcon className="h-4 w-4 mr-2" />
-                Delete Account
-              </Button>
+              <div className="max-w-md p-3 bg-red-50 border border-red-200 rounded-md">
+                <p className="text-xs text-red-700">
+                  <strong>Warning:</strong> This action will permanently delete:
+                </p>
+                <ul className="text-xs text-red-600 mt-1 ml-4 list-disc">
+                  <li>All your uploaded files</li>
+                  <li>All your folders and organization</li>
+                  <li>All shared files and permissions</li>
+                  <li>Your account data and preferences</li>
+                </ul>
+              </div>
             </div>
           </CardContent>
         </Card>

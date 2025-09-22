@@ -1,13 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import React, { useState } from 'react'
 
 // Force dynamic rendering
 export const dynamic = 'force-dynamic'
 import { useAuth } from '@/contexts/AuthContext'
 import { useRouter } from 'next/navigation'
-import { useQuery, useMutation } from '@apollo/client'
-import { gql } from '@apollo/client'
 import DashboardLayout from '@/components/layout/DashboardLayout'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader } from '@/components/ui/Card'
@@ -22,46 +20,79 @@ import {
 } from '@heroicons/react/24/outline'
 import toast from 'react-hot-toast'
 
-const SHARED_FILES_QUERY = gql`
-  query Files($filters: FileFiltersInput) {
-    files(filters: $filters) {
-      id
-      filename
-      createdAt
-      isPublic
-      downloadCount
-      fileContent {
-        id
-        size
-        mimeType
-      }
-      folder {
-        id
-        name
-      }
-    }
-  }
-`
+// Using normal HTTP routes instead of GraphQL
 
-const UNSHARE_FILE_MUTATION = gql`
-  mutation UnshareFile($fileID: ID!) {
-    unshareFile(fileID: $fileID)
-  }
-`
+// Using normal HTTP routes instead of GraphQL
 
 export default function SharedPage() {
   const { isAuthenticated, loading } = useAuth()
   const router = useRouter()
   const [searchTerm, setSearchTerm] = useState('')
+  const [activeTab, setActiveTab] = useState<'my-shared' | 'shared-with-me'>('my-shared')
+  const [mySharedFiles, setMySharedFiles] = useState<any[]>([])
+  const [filesSharedWithMe, setFilesSharedWithMe] = useState<any[]>([])
+  const [mySharedLoading, setMySharedLoading] = useState(false)
+  const [sharedWithMeLoading, setSharedWithMeLoading] = useState(false)
 
-  const { data, loading: filesLoading, refetch } = useQuery(SHARED_FILES_QUERY, {
-    variables: {
-      filters: { isPublic: true },
-    },
-    skip: !isAuthenticated,
-  })
+  // Using normal HTTP routes instead of GraphQL mutations
 
-  const [unshareFile] = useMutation(UNSHARE_FILE_MUTATION)
+  // Fetch my shared files
+  const fetchMySharedFiles = async () => {
+    setMySharedLoading(true)
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'}/api/shares/my-shared?limit=50&offset=0`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+        },
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        setMySharedFiles(data.shares || [])
+      } else {
+        console.error('Failed to fetch my shared files')
+        setMySharedFiles([])
+      }
+    } catch (error) {
+      console.error('Error fetching my shared files:', error)
+      setMySharedFiles([])
+    } finally {
+      setMySharedLoading(false)
+    }
+  }
+
+  // Fetch files shared with me
+  const fetchFilesSharedWithMe = async () => {
+    setSharedWithMeLoading(true)
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'}/api/shares/shared-with-me?limit=50&offset=0`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+        },
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        setFilesSharedWithMe(data.shares || [])
+      } else {
+        console.error('Failed to fetch files shared with me')
+        setFilesSharedWithMe([])
+      }
+    } catch (error) {
+      console.error('Error fetching files shared with me:', error)
+      setFilesSharedWithMe([])
+    } finally {
+      setSharedWithMeLoading(false)
+    }
+  }
+
+  // Load data when component mounts
+  React.useEffect(() => {
+    if (isAuthenticated) {
+      fetchMySharedFiles()
+      fetchFilesSharedWithMe()
+    }
+  }, [isAuthenticated])
 
   if (loading) {
     return (
@@ -76,10 +107,12 @@ export default function SharedPage() {
     return null
   }
 
-  const allFiles = data?.files || []
-  const sharedFiles = allFiles.filter((file: any) => file.isPublic)
-  const filteredFiles = sharedFiles.filter((file: any) =>
-    file.filename.toLowerCase().includes(searchTerm.toLowerCase())
+  const filteredMyShared = mySharedFiles.filter((share: any) =>
+    share.file.filename.toLowerCase().includes(searchTerm.toLowerCase())
+  )
+  
+  const filteredSharedWithMe = filesSharedWithMe.filter((share: any) =>
+    share.file.filename.toLowerCase().includes(searchTerm.toLowerCase())
   )
 
   const formatBytes = (bytes: number) => {
@@ -106,20 +139,67 @@ export default function SharedPage() {
     }
 
     try {
-      await unshareFile({
-        variables: { fileID: fileId },
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'}/api/shares/unshare/${fileId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+        },
       })
-      toast.success('File unshared successfully')
-      refetch()
+      
+      if (response.ok) {
+        toast.success('File unshared successfully')
+        fetchMySharedFiles()
+        fetchFilesSharedWithMe()
+      } else {
+        const errorData = await response.json()
+        toast.error(errorData.message || 'Failed to unshare file')
+      }
     } catch (error: any) {
       console.error('Unshare error:', error)
       toast.error(error.message || 'Failed to unshare file')
     }
   }
 
-  const handleDownloadFile = (fileId: string, filename: string) => {
-    // This would typically make a request to get the download URL
-    toast(`Downloading ${filename}...`)
+  const handleDownloadFile = async (fileId: string, filename: string) => {
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'}/api/shares/download/${fileId}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+        },
+      })
+      
+      if (response.ok) {
+        // Check if response is JSON (error) or binary (file)
+        const contentType = response.headers.get('content-type')
+        if (contentType && contentType.includes('application/json')) {
+          // It's an error response
+          const errorData = await response.json()
+          toast.error(errorData.error || 'Failed to download file')
+        } else {
+          // It's a file download
+          const blob = await response.blob()
+          
+          // Create a download link
+          const url = window.URL.createObjectURL(blob)
+          const link = document.createElement('a')
+          link.href = url
+          link.download = filename
+          document.body.appendChild(link)
+          link.click()
+          document.body.removeChild(link)
+          window.URL.revokeObjectURL(url)
+          
+          toast.success(`Downloaded ${filename}`)
+        }
+      } else {
+        const errorData = await response.json()
+        toast.error(errorData.error || 'Failed to download file')
+      }
+    } catch (error: any) {
+      console.error('Download error:', error)
+      toast.error(error.message || 'Failed to download file')
+    }
   }
 
   const copyShareLink = (fileId: string) => {
@@ -137,8 +217,34 @@ export default function SharedPage() {
         <div className="flex justify-between items-center">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Shared Files</h1>
-            <p className="text-gray-600">Files you've shared publicly</p>
+            <p className="text-gray-600">Manage your file sharing</p>
           </div>
+        </div>
+
+        {/* Tab Navigation */}
+        <div className="border-b border-gray-200">
+          <nav className="-mb-px flex space-x-8">
+            <button
+              onClick={() => setActiveTab('my-shared')}
+              className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'my-shared'
+                  ? 'border-primary-500 text-primary-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Files I Shared ({mySharedFiles.length})
+            </button>
+            <button
+              onClick={() => setActiveTab('shared-with-me')}
+              className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'shared-with-me'
+                  ? 'border-primary-500 text-primary-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Files Shared With Me ({filesSharedWithMe.length})
+            </button>
+          </nav>
         </div>
 
         {/* Stats */}
@@ -152,10 +258,10 @@ export default function SharedPage() {
                 <div className="ml-5 w-0 flex-1">
                   <dl>
                     <dt className="text-sm font-medium text-gray-500 truncate">
-                      Total Shared
+                      Files I Shared
                     </dt>
                     <dd className="text-lg font-medium text-gray-900">
-                      {sharedFiles.length}
+                      {mySharedFiles.length}
                     </dd>
                   </dl>
                 </div>
@@ -172,10 +278,10 @@ export default function SharedPage() {
                 <div className="ml-5 w-0 flex-1">
                   <dl>
                     <dt className="text-sm font-medium text-gray-500 truncate">
-                      Total Views
+                      Shared With Me
                     </dt>
                     <dd className="text-lg font-medium text-gray-900">
-                      {sharedFiles.reduce((sum: number, file: any) => sum + file.downloadCount, 0)}
+                      {filesSharedWithMe.length}
                     </dd>
                   </dl>
                 </div>
@@ -192,15 +298,10 @@ export default function SharedPage() {
                 <div className="ml-5 w-0 flex-1">
                   <dl>
                     <dt className="text-sm font-medium text-gray-500 truncate">
-                      Recently Shared
+                      Total Downloads
                     </dt>
                     <dd className="text-lg font-medium text-gray-900">
-                      {sharedFiles.filter((file: any) => {
-                        const fileDate = new Date(file.createdAt)
-                        const weekAgo = new Date()
-                        weekAgo.setDate(weekAgo.getDate() - 7)
-                        return fileDate > weekAgo
-                      }).length}
+                      {mySharedFiles.reduce((sum: number, share: any) => sum + share.file.downloadCount, 0)}
                     </dd>
                   </dl>
                 </div>
@@ -223,75 +324,140 @@ export default function SharedPage() {
           />
         </div>
 
-        {/* Shared Files List */}
-        {filesLoading ? (
-          <div className="flex justify-center py-12">
-            <div className="loading-spinner"></div>
-          </div>
-        ) : filteredFiles.length > 0 ? (
-          <div className="bg-white shadow overflow-hidden sm:rounded-md">
-            <ul className="divide-y divide-gray-200">
-              {filteredFiles.map((file: any) => (
-                <li key={file.id}>
-                  <div className="px-4 py-4 flex items-center justify-between">
-                    <div className="flex items-center">
-                      <div className="flex-shrink-0">
-                        <ShareIcon className="h-8 w-8 text-green-500" />
+        {/* Tab Content */}
+        <div className="mt-6">
+          {activeTab === 'my-shared' ? (
+            /* Files I Shared */
+            mySharedLoading ? (
+              <div className="flex justify-center py-12">
+                <div className="loading-spinner"></div>
+              </div>
+            ) : filteredMyShared.length > 0 ? (
+              <div className="bg-white shadow overflow-hidden sm:rounded-md">
+                <ul className="divide-y divide-gray-200">
+                  {filteredMyShared.map((share: any) => (
+                    <li key={share.id}>
+                      <div className="px-4 py-4 flex items-center justify-between">
+                        <div className="flex items-center">
+                          <div className="flex-shrink-0">
+                            <ShareIcon className="h-8 w-8 text-blue-500" />
+                          </div>
+                          <div className="ml-4">
+                            <div className="text-sm font-medium text-gray-900">
+                              {share.file.filename}
+                            </div>
+                            <div className="text-sm text-gray-500">
+                              {formatBytes(share.file.fileContent.size)} • {share.file.fileContent.mimeType}
+                            </div>
+                            <div className="text-xs text-gray-400">
+                              Shared {formatDate(share.createdAt)} • {share.file.downloadCount} downloads
+                              {share.shareType === 'USER_SPECIFIC' && share.sharedWithUser && (
+                                <span> • with {share.sharedWithUser.username}</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => copyShareLink(share.file.id)}
+                          >
+                            <LinkIcon className="h-4 w-4 mr-1" />
+                            Copy Link
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleDownloadFile(share.file.id, share.file.filename)}
+                          >
+                            <CloudArrowDownIcon className="h-4 w-4 mr-1" />
+                            Download
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleUnshareFile(share.file.id, share.file.filename)}
+                          >
+                            <TrashIcon className="h-4 w-4 mr-1" />
+                            Unshare
+                          </Button>
+                        </div>
                       </div>
-                      <div className="ml-4">
-                        <div className="text-sm font-medium text-gray-900">
-                          {file.filename}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <Card>
+                <CardContent className="text-center py-12">
+                  <ShareIcon className="mx-auto h-12 w-12 text-gray-400" />
+                  <h3 className="mt-2 text-sm font-medium text-gray-900">No files shared</h3>
+                  <p className="mt-1 text-sm text-gray-500">
+                    Get started by sharing a file from your files page.
+                  </p>
+                </CardContent>
+              </Card>
+            )
+          ) : (
+            /* Files Shared With Me */
+            sharedWithMeLoading ? (
+              <div className="flex justify-center py-12">
+                <div className="loading-spinner"></div>
+              </div>
+            ) : filteredSharedWithMe.length > 0 ? (
+              <div className="bg-white shadow overflow-hidden sm:rounded-md">
+                <ul className="divide-y divide-gray-200">
+                  {filteredSharedWithMe.map((share: any) => (
+                    <li key={share.id}>
+                      <div className="px-4 py-4 flex items-center justify-between">
+                        <div className="flex items-center">
+                          <div className="flex-shrink-0">
+                            <EyeIcon className="h-8 w-8 text-green-500" />
+                          </div>
+                          <div className="ml-4">
+                            <div className="text-sm font-medium text-gray-900">
+                              {share.file.filename}
+                            </div>
+                            <div className="text-sm text-gray-500">
+                              {formatBytes(share.file.fileContent.size)} • {share.file.fileContent.mimeType}
+                            </div>
+                            <div className="text-xs text-gray-400">
+                              Shared by {share.file.user.username} on {formatDate(share.createdAt)}
+                              {share.shareType === 'USER_SPECIFIC' && (
+                                <span> • specifically with you</span>
+                              )}
+                            </div>
+                          </div>
                         </div>
-                        <div className="text-sm text-gray-500">
-                          {formatBytes(file.fileContent.size)} • {file.fileContent.mimeType}
-                        </div>
-                        <div className="text-xs text-gray-400">
-                          Shared {formatDate(file.createdAt)} • {file.downloadCount} downloads
+                        <div className="flex items-center space-x-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleDownloadFile(share.file.id, share.file.filename)}
+                          >
+                            <CloudArrowDownIcon className="h-4 w-4 mr-1" />
+                            Download
+                          </Button>
                         </div>
                       </div>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => copyShareLink(file.id)}
-                      >
-                        <LinkIcon className="h-4 w-4 mr-1" />
-                        Copy Link
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleDownloadFile(file.id, file.filename)}
-                      >
-                        <CloudArrowDownIcon className="h-4 w-4 mr-1" />
-                        Download
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleUnshareFile(file.id, file.filename)}
-                      >
-                        <TrashIcon className="h-4 w-4 mr-1" />
-                        Unshare
-                      </Button>
-                    </div>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : (
-          <Card>
-            <CardContent className="text-center py-12">
-              <ShareIcon className="mx-auto h-12 w-12 text-gray-400" />
-              <h3 className="mt-2 text-sm font-medium text-gray-900">No shared files</h3>
-              <p className="mt-1 text-sm text-gray-500">
-                You haven't shared any files yet. Go to your files and share them to make them public.
-              </p>
-            </CardContent>
-          </Card>
-        )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <Card>
+                <CardContent className="text-center py-12">
+                  <EyeIcon className="mx-auto h-12 w-12 text-gray-400" />
+                  <h3 className="mt-2 text-sm font-medium text-gray-900">No files shared with you</h3>
+                  <p className="mt-1 text-sm text-gray-500">
+                    Files shared with you by other users will appear here.
+                  </p>
+                </CardContent>
+              </Card>
+            )
+          )}
+        </div>
       </div>
     </DashboardLayout>
   )

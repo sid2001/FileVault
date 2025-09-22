@@ -6,6 +6,7 @@ import (
 	"file-vault/internal/database"
 	"file-vault/internal/graph"
 	"file-vault/internal/graph/generated"
+	"file-vault/internal/handlers"
 	"file-vault/internal/rate_limiter"
 	"file-vault/internal/services"
 	"fmt"
@@ -93,7 +94,6 @@ func main() {
 
 	corsHandler := func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			origin := r.Header.Get("Origin")
 			w.Header().Set("Access-Control-Allow-Origin", "*")
 			w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
@@ -104,7 +104,6 @@ func main() {
 				w.WriteHeader(http.StatusOK)
 				return
 			}
-			fmt.Println("request incoming from:", origin)
 			next.ServeHTTP(w, r)
 		})
 	}
@@ -164,6 +163,35 @@ func main() {
 	fileHandler := corsHandler(rate_limiter.Middleware(auth.Middleware(fileDownloadHandler, cfg.JWTSecret), rateLimiter))
 
 	mux.Handle("/api/files/{downloadID}/download/{userID}", fileHandler)
+
+	searchHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handlers.SearchUsers(w, r, db)
+	})
+	userSearchHanlder := corsHandler(rate_limiter.Middleware(auth.Middleware(searchHandler, cfg.JWTSecret), rateLimiter))
+	mux.Handle("/api/users/search", userSearchHanlder)
+
+	// Shared files routes
+	mySharedHandler := corsHandler(rate_limiter.Middleware(auth.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handlers.GetMySharedFiles(w, r, db)
+	}), cfg.JWTSecret), rateLimiter))
+	mux.Handle("/api/shares/my-shared", mySharedHandler)
+
+	sharedWithMeHandler := corsHandler(rate_limiter.Middleware(auth.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handlers.GetFilesSharedWithMe(w, r, db)
+	}), cfg.JWTSecret), rateLimiter))
+	mux.Handle("/api/shares/shared-with-me", sharedWithMeHandler)
+
+	// Unshare file route
+	unshareHandler := corsHandler(rate_limiter.Middleware(auth.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handlers.UnshareFile(w, r, db)
+	}), cfg.JWTSecret), rateLimiter))
+	mux.Handle("/api/shares/unshare/", unshareHandler)
+
+	// Download shared file route
+	downloadSharedHandler := corsHandler(rate_limiter.Middleware(auth.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handlers.DownloadSharedFile(w, r, db, fileService)
+	}), cfg.JWTSecret), rateLimiter))
+	mux.Handle("/api/shares/download/", downloadSharedHandler)
 
 	server := &http.Server{
 		Addr:           cfg.Host + ":" + cfg.Port,
