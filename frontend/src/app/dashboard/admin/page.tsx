@@ -15,7 +15,9 @@ import {
   TrashIcon,
   ArrowLeftIcon,
   XMarkIcon,
-  InformationCircleIcon
+  InformationCircleIcon,
+  ClipboardDocumentListIcon,
+  ClockIcon
 } from '@heroicons/react/24/outline'
 import toast from 'react-hot-toast'
 
@@ -82,6 +84,33 @@ const DELETE_FILE_MUTATION = gql`
   }
 `
 
+const AUDIT_LOGS_QUERY = gql`
+  query AuditLogs($limit: Int, $offset: Int) {
+    auditLogs(limit: $limit, offset: $offset) {
+      id
+      action
+      ipAddress
+      userAgent
+      createdAt
+      user {
+        id
+        username
+        email
+        role
+      }
+      file {
+        id
+        filename
+        fileContent {
+          size
+          mimeType
+          sha256Hash
+        }
+      }
+    }
+  }
+`
+
 interface UserFile {
   id: string
   filename: string
@@ -126,11 +155,35 @@ interface StorageStats {
   fileCount: number
 }
 
+interface AuditLog {
+  id: string
+  action: string
+  ipAddress: string
+  userAgent: string
+  createdAt: string
+  user: {
+    id: string
+    username: string
+    email: string
+    role: string
+  }
+  file?: {
+    id: string
+    filename: string
+    fileContent: {
+      size: number
+      mimeType: string
+      sha256Hash: string
+    }
+  }
+}
+
 export default function AdminPage() {
   const { isAdmin, loading: authLoading } = useAuth()
-  const [activeTab, setActiveTab] = useState<'files' | 'users' | 'stats'>('files')
+  const [activeTab, setActiveTab] = useState<'files' | 'folders' | 'users' | 'stats' | 'audit'>('files')
   const [filesPage, setFilesPage] = useState(0)
   const [usersPage, setUsersPage] = useState(0)
+  const [auditPage, setAuditPage] = useState(0)
   const [deletingFileId, setDeletingFileId] = useState<string | null>(null)
   const [selectedFile, setSelectedFile] = useState<UserFile | null>(null)
   const [isFileDetailsModalOpen, setIsFileDetailsModalOpen] = useState(false)
@@ -160,6 +213,12 @@ export default function AdminPage() {
 
   const { data: statsData, loading: statsLoading, error: statsError } = useQuery(STORAGE_STATS_QUERY, {
     skip: !isAdmin
+  })
+
+  const { data: auditData, loading: auditLoading, error: auditError } = useQuery(AUDIT_LOGS_QUERY, {
+    variables: { limit: itemsPerPage, offset: auditPage * itemsPerPage },
+    skip: !isAdmin || activeTab !== 'audit',
+    fetchPolicy: 'cache-and-network'
   })
 
   const [deleteFile] = useMutation(DELETE_FILE_MUTATION, {
@@ -226,6 +285,10 @@ export default function AdminPage() {
 
   const handleUsersPageChange = (newPage: number) => {
     setUsersPage(newPage)
+  }
+
+  const handleAuditPageChange = (newPage: number) => {
+    setAuditPage(newPage)
   }
 
   const totalFilesPages = Math.ceil(totalFiles / itemsPerPage)
@@ -381,8 +444,10 @@ export default function AdminPage() {
           <nav className="-mb-px flex space-x-8 px-6">
             {[
               { id: 'files', name: 'All Files', icon: DocumentIcon },
+              { id: 'folders', name: 'Folders', icon: FolderIcon },
               { id: 'users', name: 'Users', icon: UserIcon },
               { id: 'stats', name: 'Statistics', icon: EyeIcon },
+              { id: 'audit', name: 'Audit Logs', icon: ClipboardDocumentListIcon },
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -546,6 +611,42 @@ export default function AdminPage() {
                   itemsPerPage={itemsPerPage}
                 />
               )}
+            </div>
+          )}
+
+          {/* Folders Tab */}
+          {activeTab === 'folders' && (
+            <div className="space-y-6">
+              <h2 className="text-lg font-semibold text-gray-900">Folders Management</h2>
+              <p className="text-sm text-gray-600">Manage user folders and folder structure</p>
+
+              <div className="text-center py-12">
+                <FolderIcon className="mx-auto h-12 w-12 text-gray-400" />
+                <h3 className="mt-2 text-sm font-medium text-gray-900">Folders Management</h3>
+                <p className="mt-1 text-sm text-gray-500">
+                  Folder management functionality is not implemented yet.
+                </p>
+                <div className="mt-4 max-w-2xl mx-auto bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                  <div className="flex">
+                    <div className="flex-shrink-0">
+                      <InformationCircleIcon className="h-5 w-5 text-yellow-400" />
+                    </div>
+                    <div className="ml-3 text-left">
+                      <h3 className="text-sm font-medium text-yellow-800">Coming Soon</h3>
+                      <div className="mt-2 text-sm text-yellow-700">
+                        <p>This feature will include:</p>
+                        <ul className="list-disc list-inside mt-2 space-y-1">
+                          <li>View all user folders</li>
+                          <li>Create and manage folder structure</li>
+                          <li>Folder permissions and access control</li>
+                          <li>Folder statistics and usage</li>
+                          <li>Bulk folder operations</li>
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 
@@ -737,6 +838,141 @@ export default function AdminPage() {
                   </div>
                 </div>
               ) : null}
+            </div>
+          )}
+
+          {/* Audit Logs Tab */}
+          {activeTab === 'audit' && (
+            <div className="space-y-6">
+              <h2 className="text-lg font-semibold text-gray-900">Audit Logs</h2>
+              <p className="text-sm text-gray-600">Track user activities and system events</p>
+
+              {auditLoading ? (
+                <div className="flex items-center justify-center h-32">
+                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+                </div>
+              ) : auditError ? (
+                <div className="text-red-600 text-center py-4">
+                  Error loading audit logs: {auditError.message}
+                </div>
+              ) : auditData?.auditLogs ? (
+                <div className="space-y-4">
+                  <div className="overflow-x-auto shadow ring-1 ring-black ring-opacity-5 md:rounded-lg">
+                    <table className="min-w-full divide-y divide-gray-300">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            User
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Action
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            File
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            IP Address
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            User Agent
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Timestamp
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {auditData.auditLogs.map((log: AuditLog) => (
+                          <tr key={log.id} className="hover:bg-gray-50">
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="flex items-center">
+                                <UserIcon className="h-5 w-5 text-gray-400 mr-3" />
+                                <div>
+                                  <div className="text-sm font-medium text-gray-900">
+                                    {log.user.username}
+                                  </div>
+                                  <div className="text-sm text-gray-500">
+                                    {log.user.email}
+                                  </div>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                                log.action === 'UPLOAD' ? 'bg-green-100 text-green-800' :
+                                log.action === 'DELETE' ? 'bg-red-100 text-red-800' :
+                                log.action === 'DOWNLOAD' ? 'bg-blue-100 text-blue-800' :
+                                log.action === 'SHARE' ? 'bg-purple-100 text-purple-800' :
+                                log.action === 'REGISTER' ? 'bg-yellow-100 text-yellow-800' :
+                                'bg-gray-100 text-gray-800'
+                              }`}>
+                                {log.action}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              {log.file ? (
+                                <div className="flex items-center">
+                                  <DocumentIcon className="h-4 w-4 text-gray-400 mr-2" />
+                                  <div>
+                                    <div className="text-sm text-gray-900 truncate max-w-xs" title={log.file.filename}>
+                                      {log.file.filename}
+                                    </div>
+                                    <div className="text-xs text-gray-500">
+                                      {log.file.fileContent.sha256Hash === "deleted" ? (
+                                        <span className="text-red-500 italic">File Deleted</span>
+                                      ) : (
+                                        `${formatBytes(log.file.fileContent.size)} • ${log.file.fileContent.mimeType}`
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              ) : (
+                                <span className="text-sm text-gray-500">-</span>
+                              )}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                              {log.ipAddress}
+                            </td>
+                            <td className="px-6 py-4 text-sm text-gray-900 max-w-xs">
+                              <div className="flex items-center">
+                                <div className="truncate flex-1" title={log.userAgent}>
+                                  {log.userAgent}
+                                </div>
+                                <InformationCircleIcon className="h-4 w-4 text-gray-400 ml-1 flex-shrink-0" />
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                              <div className="flex items-center">
+                                <ClockIcon className="h-4 w-4 text-gray-400 mr-1" />
+                                {new Date(log.createdAt).toLocaleString()}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Audit Logs Pagination */}
+                  {auditData?.auditLogs && auditData.auditLogs.length === itemsPerPage && (
+                    <Pagination
+                      currentPage={auditPage}
+                      totalPages={auditPage + 2} // Approximate, since we don't have total count
+                      onPageChange={handleAuditPageChange}
+                      totalItems={(auditPage + 1) * itemsPerPage}
+                      itemsPerPage={itemsPerPage}
+                    />
+                  )}
+                </div>
+              ) : (
+                <div className="text-center py-12">
+                  <ClipboardDocumentListIcon className="mx-auto h-12 w-12 text-gray-400" />
+                  <h3 className="mt-2 text-sm font-medium text-gray-900">No audit logs</h3>
+                  <p className="mt-1 text-sm text-gray-500">
+                    No audit logs found in the system.
+                  </p>
+                </div>
+              )}
             </div>
           )}
         </div>

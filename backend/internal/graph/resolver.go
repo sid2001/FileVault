@@ -133,6 +133,20 @@ func (r *mutationResolver) UploadFiles(ctx context.Context, files []*graphql.Upl
 		result = append(result, fullFile)
 	}
 
+	// Log audit event for file upload
+	ipAddress, userAgent := r.getClientInfo(ctx)
+	fmt.Printf("UploadFiles: Creating audit logs for %d files\n", len(result))
+	for _, file := range result {
+		fileIDStr := file.ID.String()
+		fmt.Printf("UploadFiles: Creating audit log for file %s\n", fileIDStr)
+		err := r.createAuditLog(ctx, userID, models.AuditActionUpload, &fileIDStr, ipAddress, userAgent)
+		if err != nil {
+			fmt.Printf("Warning: Failed to create audit log for upload: %v\n", err)
+		} else {
+			fmt.Printf("UploadFiles: Successfully created audit log for file %s\n", fileIDStr)
+		}
+	}
+
 	return result, nil
 }
 
@@ -207,6 +221,18 @@ func (r *mutationResolver) DeleteFile(ctx context.Context, fileId uuid.UUID) (bo
 		if referenceCount <= 0 && r.FileService.DeleteFile(filePath) != nil {
 			fmt.Printf("Warning::Failed to delete the file from storage\n")
 		}
+
+		// Log audit event for file deletion
+		ipAddress, userAgent := r.getClientInfo(ctx)
+		fileIDStr := fileId.String()
+		fmt.Printf("DeleteFile: Creating audit log for file deletion %s\n", fileIDStr)
+		err = r.createAuditLog(ctx, userID, models.AuditActionDelete, &fileIDStr, ipAddress, userAgent)
+		if err != nil {
+			fmt.Printf("Warning: Failed to create audit log for deletion: %v\n", err)
+		} else {
+			fmt.Printf("DeleteFile: Successfully created audit log for file deletion %s\n", fileIDStr)
+		}
+
 		return true, nil
 	} else {
 		return false, fmt.Errorf("file not found or access denied")
@@ -715,7 +741,252 @@ func (r *queryResolver) UserStorageStats(ctx context.Context, userId *uuid.UUID)
 
 // AuditLogs is the resolver for the auditLogs field.
 func (r *queryResolver) AuditLogs(ctx context.Context, limit *int, offset *int) ([]*models.AuditLog, error) {
-	panic("not implemented AuditLogs")
+	// Require admin authentication
+	_, err := auth.RequireAdmin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("admin authentication required: %w", err)
+	}
+
+	// Set default values
+	limitValue := 50
+	if limit != nil {
+		limitValue = *limit
+	}
+	offsetValue := 0
+	if offset != nil {
+		offsetValue = *offset
+	}
+
+	fmt.Printf("AuditLogs: Querying audit logs with limit=%d, offset=%d\n", limitValue, offsetValue)
+
+	query := `
+		SELECT al.id, al.user_id, al.action, al.file_id, al.ip_address, al.user_agent, al.created_at
+		FROM audit_logs al
+		ORDER BY al.created_at DESC
+		LIMIT $1 OFFSET $2
+	`
+
+	rows, err := r.DB.Query(query, limitValue, offsetValue)
+	if err != nil {
+		fmt.Printf("AuditLogs: Database query error: %v\n", err)
+		return nil, fmt.Errorf("failed to query audit logs: %w", err)
+	}
+	defer rows.Close()
+
+	var auditLogs []*models.AuditLog
+	rowCount := 0
+	for rows.Next() {
+		rowCount++
+		var auditLog models.AuditLog
+		var userID uuid.UUID
+		var fileID *uuid.UUID
+		err := rows.Scan(
+			&auditLog.ID, &userID, &auditLog.Action, &fileID,
+			&auditLog.IPAddress, &auditLog.UserAgent, &auditLog.CreatedAt,
+		)
+		if err != nil {
+			fmt.Printf("AuditLogs: Failed to scan row %d: %v\n", rowCount, err)
+			return nil, fmt.Errorf("failed to scan audit log: %w", err)
+		}
+		fmt.Printf("AuditLogs: Processing row %d - ID: %s, UserID: %s, Action: %s\n", rowCount, auditLog.ID, userID, auditLog.Action)
+
+		// Load user information
+		user, err := r.loadUserByID(userID.String())
+		if err != nil {
+			// If user doesn't exist (deleted), create a placeholder user
+			fmt.Printf("Warning: User %s not found for audit log, creating placeholder\n", userID.String())
+			auditLog.User = &models.User{
+				ID:       userID,
+				Username: "Deleted User",
+				Email:    "deleted@user.com",
+				Role:     models.UserRoleUser,
+			}
+		} else {
+			auditLog.User = user
+		}
+
+		// Load file information if file_id exists
+		if fileID != nil {
+			file, err := r.loadUserFileForAuditLog(fileID.String())
+			if err != nil {
+				// If file doesn't exist (deleted), we'll just skip it
+				fmt.Printf("AuditLogs: File %s not found for audit log: %v\n", fileID.String(), err)
+				auditLog.File = nil
+			} else {
+				auditLog.File = file
+			}
+		}
+
+		auditLogs = append(auditLogs, &auditLog)
+	}
+
+	fmt.Printf("AuditLogs: Successfully processed %d audit log entries\n", len(auditLogs))
+	return auditLogs, nil
+}
+
+// Helper function to load user by ID
+func (r *queryResolver) loadUserByID(userID string) (*models.User, error) {
+	query := `
+		SELECT id, username, email, password_hash, role, storage_quota, created_at, updated_at
+		FROM users
+		WHERE id = $1
+	`
+
+	var user models.User
+	err := r.DB.QueryRow(query, userID).Scan(
+		&user.ID, &user.Username, &user.Email, &user.PasswordHash,
+		&user.Role, &user.StorageQuota, &user.CreatedAt, &user.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &user, nil
+}
+
+// Helper function to load user file by ID
+func (r *queryResolver) loadUserFileByID(fileID string) (*models.UserFile, error) {
+	query := `
+		SELECT uf.id, uf.user_id, uf.file_content_id, uf.filename, uf.folder_id,
+			   uf.is_public, uf.download_count, uf.tags, uf.created_at, uf.updated_at
+		FROM user_files uf
+		WHERE uf.id = $1
+	`
+
+	var file models.UserFile
+	err := r.DB.QueryRow(query, fileID).Scan(
+		&file.ID, &file.UserID, &file.FileContentID, &file.Filename,
+		&file.FolderID, &file.IsPublic, &file.DownloadCount,
+		pq.Array(&file.Tags), &file.CreatedAt, &file.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &file, nil
+}
+
+// Helper function to load user file for audit logs (handles deleted files)
+func (r *queryResolver) loadUserFileForAuditLog(fileID string) (*models.UserFile, error) {
+	query := `
+		SELECT uf.id, uf.user_id, uf.file_content_id, uf.filename, uf.folder_id,
+			   uf.is_public, uf.download_count, uf.tags, uf.created_at, uf.updated_at,
+			   u.id, u.username, u.email, u.role, u.storage_quota, u.created_at, u.updated_at,
+			   fc.id, fc.sha256_hash, fc.file_path, fc.size, fc.mime_type, fc.reference_count, fc.created_at
+		FROM user_files uf
+		JOIN users u ON uf.user_id = u.id
+		LEFT JOIN file_contents fc ON uf.file_content_id = fc.id
+		WHERE uf.id = $1
+	`
+
+	var file models.UserFile
+	var user models.User
+	var fileContent models.FileContent
+	var fileContentID *uuid.UUID
+
+	err := r.DB.QueryRow(query, fileID).Scan(
+		&file.ID, &file.UserID, &fileContentID, &file.Filename,
+		&file.FolderID, &file.IsPublic, &file.DownloadCount,
+		pq.Array(&file.Tags), &file.CreatedAt, &file.UpdatedAt,
+		&user.ID, &user.Username, &user.Email, &user.Role,
+		&user.StorageQuota, &user.CreatedAt, &user.UpdatedAt,
+		&fileContent.ID, &fileContent.SHA256Hash, &fileContent.FilePath,
+		&fileContent.Size, &fileContent.MimeType, &fileContent.ReferenceCount,
+		&fileContent.CreatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	file.User = &user
+
+	// Only set file content if it exists (not deleted)
+	if fileContentID != nil && fileContent.ID != uuid.Nil {
+		file.FileContent = &fileContent
+	} else {
+		// Create a placeholder file content for deleted files
+		file.FileContent = &models.FileContent{
+			ID:             uuid.Nil,
+			SHA256Hash:     "deleted",
+			FilePath:       "deleted",
+			Size:           0,
+			MimeType:       "application/octet-stream",
+			ReferenceCount: 0,
+			CreatedAt:      time.Now(),
+		}
+	}
+
+	return &file, nil
+}
+
+// Helper function to create audit log entries
+func (r *queryResolver) createAuditLog(ctx context.Context, userID string, action models.AuditAction, fileID *string, ipAddress, userAgent string) error {
+	auditLogID := uuid.New()
+
+	query := `
+		INSERT INTO audit_logs (id, user_id, action, file_id, ip_address, user_agent, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, NOW())
+	`
+
+	var fileUUID *uuid.UUID
+	if fileID != nil {
+		parsedFileID, err := uuid.Parse(*fileID)
+		if err == nil {
+			fileUUID = &parsedFileID
+		}
+	}
+
+	fmt.Printf("createAuditLog: Inserting audit log - ID: %s, UserID: %s, Action: %s, FileID: %v, IP: %s, UserAgent: %s\n",
+		auditLogID, userID, action, fileUUID, ipAddress, userAgent)
+
+	_, err := r.DB.Exec(query, auditLogID, userID, action, fileUUID, ipAddress, userAgent)
+	if err != nil {
+		fmt.Printf("createAuditLog: Database error: %v\n", err)
+	}
+	return err
+}
+
+// Helper function to get client IP and User Agent from context
+func (r *queryResolver) getClientInfo(ctx context.Context) (string, string) {
+	// Default values
+	ipAddress := "127.0.0.1"
+	userAgent := "FileVault-Client"
+
+	// Try to extract from HTTP headers if available
+	if req := graphql.GetOperationContext(ctx); req != nil {
+		if headers := req.Headers; headers != nil {
+			// Extract User-Agent header
+			if ua := headers.Get("User-Agent"); ua != "" {
+				userAgent = ua
+				fmt.Printf("getClientInfo: Extracted User-Agent: %s\n", userAgent)
+			} else {
+				fmt.Printf("getClientInfo: No User-Agent header found\n")
+			}
+
+			// Extract IP address from various headers
+			if xff := headers.Get("X-Forwarded-For"); xff != "" {
+				// X-Forwarded-For can contain multiple IPs, take the first one
+				if ips := strings.Split(xff, ","); len(ips) > 0 {
+					ipAddress = strings.TrimSpace(ips[0])
+					fmt.Printf("getClientInfo: Extracted IP from X-Forwarded-For: %s\n", ipAddress)
+				}
+			} else if xri := headers.Get("X-Real-IP"); xri != "" {
+				ipAddress = xri
+				fmt.Printf("getClientInfo: Extracted IP from X-Real-IP: %s\n", ipAddress)
+			} else if xri := headers.Get("X-Forwarded"); xri != "" {
+				ipAddress = xri
+				fmt.Printf("getClientInfo: Extracted IP from X-Forwarded: %s\n", ipAddress)
+			} else {
+				fmt.Printf("getClientInfo: No IP headers found, using default: %s\n", ipAddress)
+			}
+		} else {
+			fmt.Printf("getClientInfo: No headers available in context\n")
+		}
+	} else {
+		fmt.Printf("getClientInfo: No operation context available\n")
+	}
+
+	return ipAddress, userAgent
 }
 
 // AllFiles is the resolver for the allFiles field.

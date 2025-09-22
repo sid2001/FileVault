@@ -36,6 +36,7 @@ const (
 	AuditActionDelete   AuditAction = "DELETE"
 	AuditActionShare    AuditAction = "SHARE"
 	AuditActionUnshare  AuditAction = "UNSHARE"
+	AuditActionRegister AuditAction = "REGISTER"
 )
 
 type User struct {

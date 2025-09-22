@@ -20,12 +20,13 @@ import {
   PencilIcon,
   MagnifyingGlassIcon,
   DocumentIcon,
+  InformationCircleIcon,
 } from '@heroicons/react/24/outline'
 import toast from 'react-hot-toast'
 
 const FOLDERS_QUERY = gql`
-  query Folders($parentID: ID) {
-    folders(parentID: $parentID) {
+  query Folders($parentId: ID) {
+    folders(parentId: $parentId) {
       id
       name
       createdAt
@@ -55,8 +56,8 @@ const CREATE_FOLDER_MUTATION = gql`
 `
 
 const UPDATE_FOLDER_MUTATION = gql`
-  mutation UpdateFolder($folderID: ID!, $name: String!) {
-    updateFolder(folderID: $folderID, name: $name) {
+  mutation UpdateFolder($folderId: ID!, $name: String!) {
+    updateFolder(folderId: $folderId, name: $name) {
       id
       name
       updatedAt
@@ -65,8 +66,8 @@ const UPDATE_FOLDER_MUTATION = gql`
 `
 
 const DELETE_FOLDER_MUTATION = gql`
-  mutation DeleteFolder($folderID: ID!) {
-    deleteFolder(folderID: $folderID)
+  mutation DeleteFolder($folderId: ID!) {
+    deleteFolder(folderId: $folderId)
   }
 `
 
@@ -198,6 +199,28 @@ export default function FoldersPage() {
             <PlusIcon className="h-4 w-4 mr-2" />
             Create Folder
           </Button>
+        </div>
+
+        {/* Coming Soon Info */}
+        <div className="max-w-2xl mx-auto bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+          <div className="flex">
+            <div className="flex-shrink-0">
+              <InformationCircleIcon className="h-5 w-5 text-yellow-400" />
+            </div>
+            <div className="ml-3 text-left">
+              <h3 className="text-sm font-medium text-yellow-800">Coming Soon</h3>
+              <div className="mt-2 text-sm text-yellow-700">
+                <p>Enhanced folder management features are being developed:</p>
+                <ul className="list-disc list-inside mt-2 space-y-1">
+                  <li>Advanced folder organization and structure</li>
+                  <li>Folder sharing and collaboration</li>
+                  <li>Folder permissions and access control</li>
+                  <li>Bulk folder operations</li>
+                  <li>Folder templates and presets</li>
+                </ul>
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Search */}
