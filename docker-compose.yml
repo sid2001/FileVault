@@ -9,6 +9,7 @@ services:
       POSTGRES_DB: file_vault
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: up32dp0799
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./backend/migrations:/docker-entrypoint-initdb.d
@@ -17,10 +18,12 @@ services:
     networks:
       - file-vault-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      test: ["CMD-SHELL", "pg_isready -U postgres -d file_vault"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
 
   # Redis Cache
   redis:
