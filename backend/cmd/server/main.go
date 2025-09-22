@@ -143,7 +143,7 @@ func main() {
 			return
 		}
 
-		fmt.Printf("DownloadHandler: File path: %s, File name: %s, MIME type: %s\n", filePath, fileName, mimeType)
+		fmt.Printf("DownloadHandler: File path from DB: %s, File name: %s, MIME type: %s\n", filePath, fileName, mimeType)
 
 		if err := fileService.DownloadFile(&w, filePath, fileName, mimeType); err != nil {
 			fmt.Printf("DownloadHandler: Failed to download file: %v\n", err)
@@ -162,7 +162,21 @@ func main() {
 
 	fileHandler := corsHandler(rate_limiter.Middleware(auth.Middleware(fileDownloadHandler, cfg.JWTSecret), rateLimiter))
 
+	filePreviewHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handlers.FilePreviewHandler(w, r, db, fileService)
+	})
+
+	previewHandler := corsHandler(rate_limiter.Middleware(auth.Middleware(filePreviewHandler, cfg.JWTSecret), rateLimiter))
+
 	mux.Handle("/api/files/{downloadID}/download/{userID}", fileHandler)
+	mux.Handle("/api/files/{downloadID}/preview/{userID}", previewHandler)
+
+	// Test endpoint to verify server is working
+	mux.HandleFunc("/api/test", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintf(w, `{"status": "ok", "message": "Server is running"}`)
+	})
 
 	searchHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		handlers.SearchUsers(w, r, db)

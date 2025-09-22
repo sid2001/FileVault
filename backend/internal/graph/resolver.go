@@ -529,7 +529,9 @@ func (r *queryResolver) Files(ctx context.Context, filters *backend.FileFiltersI
 
 	if filters != nil {
 		fmt.Printf("Filter request\n")
-		fmt.Printf("Search: %s\n", *(filters.MimeType))
+		if filters.Search != nil {
+			fmt.Printf("Search: %s\n", *filters.Search)
+		}
 		if filters.Search != nil && *filters.Search != "" {
 			argCount++
 			conditions = append(conditions, fmt.Sprintf("uf.filename ILIKE $%d", argCount))
@@ -612,6 +614,9 @@ func (r *queryResolver) Files(ctx context.Context, filters *backend.FileFiltersI
 
 	rows, err := r.DB.Query(baseQuery, args...)
 	if err != nil {
+		fmt.Printf("Database query error: %v\n", err)
+		fmt.Printf("Query: %s\n", baseQuery)
+		fmt.Printf("Args: %v\n", args)
 		return nil, fmt.Errorf("failed to query files: %w", err)
 	}
 	defer rows.Close()
@@ -625,6 +630,7 @@ func (r *queryResolver) Files(ctx context.Context, filters *backend.FileFiltersI
 			pq.Array(&file.Tags), &file.CreatedAt, &file.UpdatedAt,
 		)
 		if err != nil {
+			fmt.Printf("Row scan error: %v\n", err)
 			return nil, fmt.Errorf("failed to scan file: %w", err)
 		}
 
@@ -1030,6 +1036,7 @@ func (r *queryResolver) AllFiles(ctx context.Context, limit *int, offset *int) (
 			pq.Array(&file.Tags), &file.CreatedAt, &file.UpdatedAt,
 		)
 		if err != nil {
+			fmt.Printf("Row scan error: %v\n", err)
 			return nil, fmt.Errorf("failed to scan file: %w", err)
 		}
 

@@ -44,13 +44,15 @@ func (r *Resolver) loadUserFileWithRelations(fileID string) (*models.UserFile, e
 		&fileContent.CreatedAt,
 	)
 	if err != nil {
+		fmt.Printf("loadUserFileWithRelations error for fileID %s: %v\n", fileID, err)
 		return nil, fmt.Errorf("failed to load file: %w", err)
 	}
 
 	file.User = &user
 	file.FileContent = &fileContent
 
-	return userFileToGraphQL(&file), nil
+	graphqlFile := userFileToGraphQL(&file)
+	return graphqlFile, nil
 }
 
 // Type conversion functions
