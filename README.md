@@ -4,12 +4,6 @@
 
 A modern, secure cloud storage application built with Next.js and Go, featuring advanced file management, sharing capabilities, and deduplication.
 
-
-## Host Link
-```
-http://51.21.161.85:3000/register
-```
-
 ## 🚀 Quick Start
 
 ```bash
